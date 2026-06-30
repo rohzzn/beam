@@ -1,6 +1,16 @@
-import { useEffect, useState } from 'react'
-import type { Quality, SourceInfo } from '../../../preload/index'
-import { IconCheck, IconMic, IconMonitor, IconVolume, IconWebcam } from '../components/Icons'
+import { useEffect, useRef, useState } from 'react'
+import type { BeamSettings, Quality, SourceInfo } from '../../../preload/index'
+import {
+  IconCheck,
+  IconFolder,
+  IconKeyboard,
+  IconMic,
+  IconMonitor,
+  IconSettings,
+  IconVolume,
+  IconWebcam,
+  IconX
+} from '../components/Icons'
 import Logo from '../components/Logo'
 import { QUALITY_OPTIONS } from '../lib/quality'
 
@@ -17,6 +27,27 @@ function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }): React.
       <span className="switch__knob" />
     </button>
   )
+}
+
+function acceleratorFromEvent(e: KeyboardEvent): string | null {
+  const parts: string[] = []
+  if (e.ctrlKey) parts.push('Control')
+  if (e.altKey) parts.push('Alt')
+  if (e.shiftKey) parts.push('Shift')
+  if (e.metaKey) parts.push('Super')
+  const key = e.key
+  if (['Control', 'Alt', 'Shift', 'Meta'].includes(key)) return null
+  const named: Record<string, string> = {
+    ' ': 'Space',
+    ArrowUp: 'Up',
+    ArrowDown: 'Down',
+    ArrowLeft: 'Left',
+    ArrowRight: 'Right',
+    Escape: 'Esc'
+  }
+  const mainKey = named[key] ?? (key.length === 1 ? key.toUpperCase() : key)
+  parts.push(mainKey)
+  return parts.join('+')
 }
 
 export default function Home(): React.JSX.Element {
@@ -36,6 +67,11 @@ export default function Home(): React.JSX.Element {
   const [systemAudioOn, setSystemAudioOn] = useState(false)
   const [quality, setQuality] = useState<Quality>('high')
   const [countdown, setCountdown] = useState<number | null>(null)
+
+  const [settings, setSettings] = useState<BeamSettings | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [capturingHotkey, setCapturingHotkey] = useState(false)
+  const prefsLoaded = useRef(false)
 
   async function refreshSources(): Promise<void> {
     setLoadingSources(true)
@@ -65,19 +101,61 @@ export default function Home(): React.JSX.Element {
       const cams = devices.filter((d) => d.kind === 'videoinput')
       setMicDevices(mics)
       setWebcamDevices(cams)
-      if (mics[0]) setMicDeviceId(mics[0].deviceId)
-      if (cams[0]) setWebcamDeviceId(cams[0].deviceId)
+      if (mics[0]) setMicDeviceId((cur) => cur || mics[0].deviceId)
+      if (cams[0]) setWebcamDeviceId((cur) => cur || cams[0].deviceId)
     } catch {
       // ignore
     }
+  }
+
+  async function loadSettings(): Promise<void> {
+    const s = await window.beam.getSettings()
+    setSettings(s)
+    const prefs = s.recordingPrefs
+    setMicOn(prefs.micEnabled)
+    if (prefs.micDeviceId) setMicDeviceId(prefs.micDeviceId)
+    setWebcamOn(prefs.webcamEnabled)
+    if (prefs.webcamDeviceId) setWebcamDeviceId(prefs.webcamDeviceId)
+    setSystemAudioOn(prefs.systemAudio)
+    setQuality(prefs.quality)
+    prefsLoaded.current = true
   }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch-on-mount; setState happens after the await, not synchronously
     refreshSources()
     primeDevicePermissions()
+    loadSettings()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Persist recording preferences whenever they change, so the global hotkey
+  // (which can't see this React state) starts a recording with whatever the
+  // user last configured here.
+  useEffect(() => {
+    if (!prefsLoaded.current) return
+    window.beam.saveRecordingPrefs({
+      micEnabled: micOn,
+      micDeviceId: micDeviceId || undefined,
+      webcamEnabled: webcamOn,
+      webcamDeviceId: webcamDeviceId || undefined,
+      systemAudio: systemAudioOn,
+      quality
+    })
+  }, [micOn, micDeviceId, webcamOn, webcamDeviceId, systemAudioOn, quality])
+
+  useEffect(() => {
+    if (!capturingHotkey) return
+    function onKeyDown(e: KeyboardEvent): void {
+      e.preventDefault()
+      const accel = acceleratorFromEvent(e)
+      if (!accel || !accel.includes('+')) return
+      setCapturingHotkey(false)
+      window.beam.setHotkey(true, accel).then(setSettings)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [capturingHotkey])
 
   const filtered = sources.filter((s) => s.type === tab)
 
@@ -104,13 +182,81 @@ export default function Home(): React.JSX.Element {
     })
   }
 
+  async function handleChooseOutputDir(): Promise<void> {
+    const dir = await window.beam.chooseOutputDir()
+    setSettings((s) => (s ? { ...s, outputDir: dir } : s))
+  }
+
+  async function handleResetOutputDir(): Promise<void> {
+    await window.beam.resetOutputDir()
+    setSettings((s) => (s ? { ...s, outputDir: null } : s))
+  }
+
+  async function handleToggleHotkey(): Promise<void> {
+    if (!settings) return
+    const next = await window.beam.setHotkey(!settings.hotkeyEnabled, settings.startStopHotkey)
+    setSettings(next)
+  }
+
   return (
     <div className="home">
       <div className="home__titlebar" />
       <div className="home__brand">
         <Logo size={28} />
         <div className="home__title">Beam</div>
+        <div className="home__spacer" />
+        <button
+          className="btn btn-ghost btn-icon"
+          onClick={() => setSettingsOpen((v) => !v)}
+          title="Settings"
+        >
+          <IconSettings width={16} height={16} />
+        </button>
       </div>
+
+      {settingsOpen && (
+        <div className="settings-panel">
+          <div className="settings-panel__row">
+            <span className="settings-panel__label">
+              <IconFolder width={15} height={15} />
+              Save recordings to
+            </span>
+          </div>
+          <div className="settings-panel__path" title={settings?.outputDir ?? undefined}>
+            {settings?.outputDir ?? 'Videos\\Beam (default)'}
+          </div>
+          <div className="settings-panel__actions">
+            <button className="btn btn-secondary btn-sm" onClick={handleChooseOutputDir}>
+              Change…
+            </button>
+            {settings?.outputDir && (
+              <button className="btn btn-ghost btn-sm" onClick={handleResetOutputDir}>
+                Reset to default
+              </button>
+            )}
+          </div>
+
+          <div className="settings-panel__row settings-panel__row--spaced">
+            <span className="settings-panel__label">
+              <IconKeyboard width={15} height={15} />
+              Start/stop hotkey
+            </span>
+            <Switch on={settings?.hotkeyEnabled ?? false} onToggle={handleToggleHotkey} />
+          </div>
+          {settings?.hotkeyEnabled && (
+            <div className="settings-panel__actions">
+              <kbd className="settings-panel__kbd">{settings.startStopHotkey}</kbd>
+              <button className="btn btn-secondary btn-sm" onClick={() => setCapturingHotkey(true)}>
+                {capturingHotkey ? 'Press a key combo…' : 'Change…'}
+              </button>
+            </div>
+          )}
+          <div className="settings-panel__hint">
+            Works anywhere, even when Beam isn&apos;t focused. Starts a full-screen recording with
+            your current mic/webcam/quality settings, or stops the active one.
+          </div>
+        </div>
+      )}
 
       <div className="home__body">
         <div className="tabs">
@@ -228,6 +374,15 @@ export default function Home(): React.JSX.Element {
         <div className="countdown-overlay">
           <div key={countdown} className="countdown-overlay__number">
             {countdown}
+          </div>
+        </div>
+      )}
+
+      {capturingHotkey && (
+        <div className="countdown-overlay" onClick={() => setCapturingHotkey(false)}>
+          <IconX width={28} height={28} />
+          <div style={{ marginTop: 12, fontSize: 14, color: 'var(--text-dim)' }}>
+            Press a key combo (e.g. Ctrl+Shift+R)…
           </div>
         </div>
       )}

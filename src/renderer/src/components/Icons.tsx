@@ -129,3 +129,62 @@ export function IconCheck(props: SVGProps<SVGSVGElement>): React.JSX.Element {
     </svg>
   )
 }
+
+export function IconSettings(props: SVGProps<SVGSVGElement>): React.JSX.Element {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  )
+}
+
+export function IconKeyboard(props: SVGProps<SVGSVGElement>): React.JSX.Element {
+  return (
+    <svg {...base(props)}>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <line x1="6" y1="9" x2="6" y2="9.01" />
+      <line x1="10" y1="9" x2="10" y2="9.01" />
+      <line x1="14" y1="9" x2="14" y2="9.01" />
+      <line x1="18" y1="9" x2="18" y2="9.01" />
+      <line x1="7" y1="15" x2="17" y2="15" />
+    </svg>
+  )
+}
+
+export function IconCrop(props: SVGProps<SVGSVGElement>): React.JSX.Element {
+  return (
+    <svg {...base(props)}>
+      <path d="M6 2v14a2 2 0 0 0 2 2h14" />
+      <path d="M18 22V8a2 2 0 0 0-2-2H2" />
+    </svg>
+  )
+}
+
+export function IconScissors(props: SVGProps<SVGSVGElement>): React.JSX.Element {
+  return (
+    <svg {...base(props)}>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <line x1="20" y1="4" x2="8.12" y2="15.88" />
+      <line x1="14.47" y1="14.48" x2="20" y2="20" />
+      <line x1="8.12" y1="8.12" x2="12" y2="12" />
+    </svg>
+  )
+}
+
+export function IconChevronDown(props: SVGProps<SVGSVGElement>): React.JSX.Element {
+  return (
+    <svg {...base(props)}>
+      <polyline points="6,9 12,15 18,9" />
+    </svg>
+  )
+}
+
+export function IconZap(props: SVGProps<SVGSVGElement>): React.JSX.Element {
+  return (
+    <svg {...base(props)}>
+      <polygon points="13,2 3,14 12,14 11,22 21,10 12,10" />
+    </svg>
+  )
+}

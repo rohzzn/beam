@@ -91,8 +91,12 @@ export default function ControlBar(): React.JSX.Element {
   }
 
   useEffect(() => {
-    const off = window.beam.onRecordingBegin((options) => begin(options))
-    return () => off()
+    const offBegin = window.beam.onRecordingBegin((options) => begin(options))
+    const offRemoteStop = window.beam.onRemoteStop(() => handleStop())
+    return () => {
+      offBegin()
+      offRemoteStop()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

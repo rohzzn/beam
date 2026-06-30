@@ -15,6 +15,7 @@ import icon from '../../resources/icon.png?asset'
 import { createHomeWindow } from './windows'
 import { registerIpcHandlers } from './ipc'
 import { recorderState } from './state'
+import { registerHotkeys, unregisterHotkeys } from './hotkeys'
 
 // Must run before app is ready. The renderer is served from http://localhost
 // in dev (and from an `app://`-equivalent file origin in prod), so a plain
@@ -85,6 +86,7 @@ app.whenReady().then(() => {
 
   setupDisplayMediaHandler()
   registerIpcHandlers()
+  registerHotkeys()
   console.log('[beam] ipc registered, creating tray...')
   try {
     createTray()
@@ -114,4 +116,8 @@ app.on('web-contents-created', (_event, contents) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
+})
+
+app.on('will-quit', () => {
+  unregisterHotkeys()
 })

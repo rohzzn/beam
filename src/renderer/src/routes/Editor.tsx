@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { toPlaybackUrl } from '../lib/fileUrl'
-import { IconCopy, IconFolder, IconGif, IconPause, IconPlay, IconX } from '../components/Icons'
+import {
+  IconCheck,
+  IconCopy,
+  IconFolder,
+  IconGif,
+  IconPause,
+  IconPlay,
+  IconX
+} from '../components/Icons'
 import Logo from '../components/Logo'
 
 function formatTime(seconds: number): string {
@@ -22,6 +30,7 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
   const [playing, setPlaying] = useState(false)
   const [busy, setBusy] = useState<'trim' | 'gif' | 'transcribe' | null>(null)
   const [statusMsg, setStatusMsg] = useState('')
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     function onMove(e: PointerEvent): void {
@@ -113,6 +122,16 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
     }
   }
 
+  async function handleCopyFile(): Promise<void> {
+    try {
+      await window.beam.copyFile(filePath)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      setStatusMsg(`Copy failed: ${(err as Error).message}`)
+    }
+  }
+
   async function handleTranscribe(): Promise<void> {
     setBusy('transcribe')
     setStatusMsg('Transcribing…')
@@ -142,8 +161,16 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
           <button className="btn btn-secondary" onClick={() => window.beam.reveal(filePath)}>
             <IconFolder width={15} height={15} /> Show in folder
           </button>
-          <button className="btn btn-secondary" onClick={() => window.beam.copyPath(filePath)}>
-            <IconCopy width={15} height={15} /> Copy path
+          <button className="btn btn-secondary" onClick={handleCopyFile}>
+            {copied ? <IconCheck width={15} height={15} /> : <IconCopy width={15} height={15} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => window.beam.copyPath(filePath)}
+            title="Copy file path as text"
+          >
+            Copy path
           </button>
           <button
             className="btn btn-ghost btn-icon"

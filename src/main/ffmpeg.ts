@@ -53,15 +53,27 @@ export async function transcodeScreenOnly(
   ])
 }
 
-/** Composite a circular webcam bubble (bottom-right) over the screen recording. */
+export interface BubblePlacement {
+  size: number
+  /** 0..1 fraction of available travel; 0 = flush left/top, 1 = flush
+   *  right/bottom. Resolved against the real encoded frame size at filter
+   *  time (via ffmpeg's W/H), so it's correct regardless of DPI scaling. */
+  xFrac: number
+  yFrac: number
+}
+
+/** Composite a circular webcam bubble over the screen recording, positioned
+ *  wherever the user actually left the live bubble window (falls back to
+ *  bottom-right if no placement was captured). */
 export async function overlayWebcamBubble(
   screenWebm: string,
   webcamWebm: string,
   outputMp4: string,
   quality: EncodeQuality = DEFAULT_QUALITY,
-  bubbleSize = 220,
+  placement: BubblePlacement | null = null,
   margin = 36
 ): Promise<void> {
+  const bubbleSize = placement?.size ?? 220
   const r = bubbleSize / 2
   // A hard if/lte step here (alpha = 255 or 0, nothing between) gives the
   // circle a visibly jagged, stair-stepped pixel edge with no anti-aliasing.
@@ -70,11 +82,15 @@ export async function overlayWebcamBubble(
   // instead, matching how a CSS border-radius circle would render.
   const feather = 1.5
   const alphaExpr = `255*clip((${r}-hypot(X-${r},Y-${r}))/${feather}+0.5,0,1)`
+  const overlayPos =
+    placement != null
+      ? `(W-${bubbleSize})*${placement.xFrac.toFixed(4)}:(H-${bubbleSize})*${placement.yFrac.toFixed(4)}`
+      : `W-${bubbleSize + margin}:H-${bubbleSize + margin}`
   const filter =
     `[1:v]scale=${bubbleSize}:${bubbleSize}:force_original_aspect_ratio=increase,` +
     `crop=${bubbleSize}:${bubbleSize},format=yuva420p,` +
     `geq=lum='p(X,Y)':a='${alphaExpr}'[circle];` +
-    `[0:v][circle]overlay=W-${bubbleSize + margin}:H-${bubbleSize + margin}[out]`
+    `[0:v][circle]overlay=${overlayPos}[out]`
 
   await run([
     '-y',

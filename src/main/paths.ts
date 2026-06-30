@@ -1,9 +1,11 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { mkdirSync, existsSync } from 'fs'
+import { loadSettings } from './settings'
 
 export function getOutputDir(): string {
-  const dir = join(app.getPath('videos'), 'Beam')
+  const custom = loadSettings().outputDir
+  const dir = custom && existsSync(custom) ? custom : join(app.getPath('videos'), 'Beam')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
 }

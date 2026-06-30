@@ -22,12 +22,29 @@ export interface SourceInfo {
   appIcon: string | null
 }
 
+export interface RecordingPrefs {
+  micEnabled: boolean
+  micDeviceId?: string
+  webcamEnabled: boolean
+  webcamDeviceId?: string
+  systemAudio: boolean
+  quality: Quality
+}
+
+export interface BeamSettings {
+  outputDir: string | null
+  hotkeyEnabled: boolean
+  startStopHotkey: string
+  recordingPrefs: RecordingPrefs
+}
+
 const api = {
   listSources: (): Promise<SourceInfo[]> => ipcRenderer.invoke('sources:list'),
   startRecording: (options: RecordingOptions): Promise<void> =>
     ipcRenderer.invoke('recording:start', options),
   sendControlEvent: (type: 'pause' | 'resume' | 'stop'): void =>
     ipcRenderer.send('recording:control-event', { type }),
+  resizeWebcamBubble: (deltaPx: number): void => ipcRenderer.send('webcam:resize', deltaPx),
   submitScreenBuffer: (buffer: ArrayBuffer): Promise<void> =>
     ipcRenderer.invoke('recording:submit-screen', buffer),
   submitWebcamBuffer: (buffer: ArrayBuffer): Promise<void> =>
@@ -50,10 +67,25 @@ const api = {
     ipcRenderer.invoke('editor:exportGif', { filePath, start, end }),
   reveal: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:reveal', filePath),
   copyPath: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:copyPath', filePath),
+  copyFile: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:copyFile', filePath),
   openHome: (): Promise<void> => ipcRenderer.invoke('editor:openHome'),
   transcribe: (filePath: string): Promise<{ text: string; srtPath: string | null }> =>
     ipcRenderer.invoke('transcription:run', filePath),
-  getVideosDir: (): Promise<string> => ipcRenderer.invoke('app:getVideosDir')
+  getVideosDir: (): Promise<string> => ipcRenderer.invoke('app:getVideosDir'),
+
+  getSettings: (): Promise<BeamSettings> => ipcRenderer.invoke('settings:get'),
+  saveRecordingPrefs: (prefs: RecordingPrefs): Promise<BeamSettings> =>
+    ipcRenderer.invoke('settings:saveRecordingPrefs', prefs),
+  setHotkey: (enabled: boolean, accelerator: string): Promise<BeamSettings> =>
+    ipcRenderer.invoke('settings:setHotkey', { enabled, accelerator }),
+  chooseOutputDir: (): Promise<string | null> => ipcRenderer.invoke('settings:chooseOutputDir'),
+  resetOutputDir: (): Promise<string | null> => ipcRenderer.invoke('settings:resetOutputDir'),
+
+  onRemoteStop: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('recording:remote-stop', listener)
+    return () => ipcRenderer.removeListener('recording:remote-stop', listener)
+  }
 }
 
 export type BeamAPI = typeof api

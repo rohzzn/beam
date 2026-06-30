@@ -1,20 +1,24 @@
-import { ipcMain, desktopCapturer, shell, clipboard, app, BrowserWindow } from 'electron'
+import { ipcMain, desktopCapturer, shell, clipboard, app, BrowserWindow, dialog } from 'electron'
 import { join } from 'path'
 import { writeFile, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
+import { execFile } from 'child_process'
 import {
-  createControlBar,
-  createWebcamBubble,
   createEditorWindow,
   closeRecordingWindows,
   getHomeWindow,
-  getWebcamWindow
+  getWebcamWindow,
+  resizeWebcamBubble,
+  getWebcamPlacement
 } from './windows'
 import { getOutputDir, getTempDir, timestampedFilename } from './paths'
 import { transcodeScreenOnly, overlayWebcamBubble, trimVideo, exportGif } from './ffmpeg'
 import { recorderState, resetRecorderState, RecordingOptions } from './state'
 import { transcribeFile } from './transcribe'
 import { getQualityPreset } from './quality'
+import { beginRecording } from './recording'
+import { loadSettings, saveSettings, RecordingPrefs } from './settings'
+import { applyHotkeySetting } from './hotkeys'
 
 export function registerIpcHandlers(): void {
   ipcMain.handle('sources:list', async () => {
@@ -33,35 +37,15 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('recording:start', async (_evt, options: RecordingOptions) => {
-    resetRecorderState()
-    recorderState.options = options
-
-    getHomeWindow()?.hide()
-    const control = createControlBar()
-    let webcam: BrowserWindow | null = null
-    if (options.webcamEnabled) {
-      webcam = createWebcamBubble()
-    }
-
-    const begin = (): void => {
-      control.webContents.send('recording:begin', options)
-      webcam?.webContents.send('recording:begin', options)
-    }
-    if (webcam) {
-      let ready = 0
-      const onReady = (): void => {
-        ready += 1
-        if (ready >= 2) begin()
-      }
-      control.webContents.once('did-finish-load', onReady)
-      webcam.webContents.once('did-finish-load', onReady)
-    } else {
-      control.webContents.once('did-finish-load', begin)
-    }
+    await beginRecording(options)
   })
 
   ipcMain.on('recording:control-event', (_evt, payload: { type: 'pause' | 'resume' | 'stop' }) => {
     getWebcamWindow()?.webContents.send('recording:control-event', payload)
+  })
+
+  ipcMain.on('webcam:resize', (_evt, deltaPx: number) => {
+    resizeWebcamBubble(deltaPx)
   })
 
   ipcMain.handle('recording:submit-screen', async (_evt, buffer: ArrayBuffer) => {
@@ -115,6 +99,10 @@ export function registerIpcHandlers(): void {
     clipboard.writeText(filePath)
   })
 
+  ipcMain.handle('editor:copyFile', async (_evt, filePath: string) => {
+    await copyFileToClipboard(filePath)
+  })
+
   ipcMain.handle('editor:openHome', () => {
     BrowserWindow.getFocusedWindow()?.close()
     getHomeWindow()?.show()
@@ -125,6 +113,56 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('app:getVideosDir', () => getOutputDir())
+
+  ipcMain.handle('settings:get', () => loadSettings())
+
+  ipcMain.handle('settings:saveRecordingPrefs', (_evt, prefs: RecordingPrefs) => {
+    return saveSettings({ recordingPrefs: prefs })
+  })
+
+  ipcMain.handle(
+    'settings:setHotkey',
+    (_evt, payload: { enabled: boolean; accelerator: string }) => {
+      const next = saveSettings({
+        hotkeyEnabled: payload.enabled,
+        startStopHotkey: payload.accelerator
+      })
+      applyHotkeySetting()
+      return next
+    }
+  )
+
+  ipcMain.handle('settings:chooseOutputDir', async () => {
+    const win = getHomeWindow()
+    const result = win
+      ? await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
+      : await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    if (result.canceled || result.filePaths.length === 0) return loadSettings().outputDir
+    return saveSettings({ outputDir: result.filePaths[0] }).outputDir
+  })
+
+  ipcMain.handle('settings:resetOutputDir', () => {
+    return saveSettings({ outputDir: null }).outputDir
+  })
+}
+
+/** Electron's clipboard API has no documented cross-platform way to put a
+ *  file reference (CF_HDROP) on the clipboard, only text/images/buffers —
+ *  see electron/electron#9035. Shelling out to PowerShell's Set-Clipboard
+ *  is the standard pragmatic workaround on Windows, and gives a real
+ *  "paste the file" experience in Explorer, Discord, Slack, etc. */
+async function copyFileToClipboard(filePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const psPath = filePath.replace(/'/g, "''")
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', `Set-Clipboard -Path '${psPath}'`],
+      (err) => {
+        if (err) reject(err)
+        else resolve()
+      }
+    )
+  })
 }
 
 async function maybeFinalize(): Promise<void> {
@@ -135,10 +173,13 @@ async function maybeFinalize(): Promise<void> {
   const outDir = getOutputDir()
   const outPath = join(outDir, timestampedFilename('mp4'))
   const quality = getQualityPreset(options.quality)
+  // Must read this before closeRecordingWindows() below — once the bubble
+  // window closes, its bounds are gone.
+  const placement = options.webcamEnabled ? getWebcamPlacement() : null
 
   try {
     if (options.webcamEnabled && webcamBufferPath) {
-      await overlayWebcamBubble(screenBufferPath, webcamBufferPath, outPath, quality)
+      await overlayWebcamBubble(screenBufferPath, webcamBufferPath, outPath, quality, placement)
     } else {
       await transcodeScreenOnly(screenBufferPath, outPath, quality)
     }

@@ -52,8 +52,15 @@ export default function WebcamBubble(): React.JSX.Element {
     }
   }, [])
 
+  function handleWheel(e: React.WheelEvent): void {
+    // Scroll to resize: a frameless transparent window has no visible OS
+    // resize handle to grab, so this is the bubble's only resize affordance
+    // besides whatever sliver of edge-dragging Windows still allows.
+    window.beam.resizeWebcamBubble(e.deltaY < 0 ? 12 : -12)
+  }
+
   return (
-    <div className="webcam-bubble">
+    <div className="webcam-bubble" onWheel={handleWheel}>
       <video ref={videoRef} autoPlay muted playsInline />
       {!ready && <div className="webcam-bubble__placeholder">Camera…</div>}
     </div>

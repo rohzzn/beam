@@ -94,9 +94,21 @@ export function createControlBar(): BrowserWindow {
   return controlWindow
 }
 
+const WEBCAM_MIN_SIZE = 120
+const WEBCAM_MAX_SIZE = 440
+
+/** Proportional to the primary display rather than a fixed pixel size, so
+ *  the bubble doesn't look tiny on a 4K capture or oversized on a small
+ *  one. Most recordings are of the primary display; for other sources this
+ *  is still a reasonable default the user can resize anyway. */
+function defaultWebcamSize(): number {
+  const { height } = screen.getPrimaryDisplay().workAreaSize
+  return Math.round(Math.min(WEBCAM_MAX_SIZE, Math.max(WEBCAM_MIN_SIZE, height * 0.2)))
+}
+
 export function createWebcamBubble(): BrowserWindow {
   const display = screen.getPrimaryDisplay()
-  const size = 220
+  const size = defaultWebcamSize()
   const margin = 40
   const x = display.workArea.x + display.workArea.width - size - margin
   const y = display.workArea.y + display.workArea.height - size - margin
@@ -106,10 +118,14 @@ export function createWebcamBubble(): BrowserWindow {
     height: size,
     x,
     y,
+    minWidth: WEBCAM_MIN_SIZE,
+    minHeight: WEBCAM_MIN_SIZE,
+    maxWidth: WEBCAM_MAX_SIZE,
+    maxHeight: WEBCAM_MAX_SIZE,
     frame: false,
     transparent: true,
     hasShadow: false,
-    resizable: false,
+    resizable: true,
     movable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
@@ -119,12 +135,75 @@ export function createWebcamBubble(): BrowserWindow {
   webcamWindow.setAlwaysOnTop(true, 'screen-saver')
   webcamWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   webcamWindow.setContentProtection(true)
+  // Keep it square — a non-square resize would turn the circular bubble
+  // into an ellipse. Force width == height on every manual resize, anchored
+  // to the window's center so it grows/shrinks in place.
+  webcamWindow.on('will-resize', (event, newBounds) => {
+    const side = Math.max(newBounds.width, newBounds.height)
+    const cx = newBounds.x + newBounds.width / 2
+    const cy = newBounds.y + newBounds.height / 2
+    event.preventDefault()
+    webcamWindow?.setBounds({
+      x: Math.round(cx - side / 2),
+      y: Math.round(cy - side / 2),
+      width: side,
+      height: side
+    })
+  })
   webcamWindow.on('ready-to-show', () => webcamWindow?.show())
   webcamWindow.on('closed', () => {
     webcamWindow = null
   })
   load(webcamWindow, '/webcam')
   return webcamWindow
+}
+
+/** Grow/shrink the bubble by a step, anchored to its current center. Used
+ *  for scroll-to-resize, since a frameless transparent window has no
+ *  visible OS resize handle to drag. */
+export function resizeWebcamBubble(deltaPx: number): void {
+  if (!webcamWindow) return
+  const b = webcamWindow.getBounds()
+  const side = Math.min(WEBCAM_MAX_SIZE, Math.max(WEBCAM_MIN_SIZE, b.width + deltaPx))
+  const cx = b.x + b.width / 2
+  const cy = b.y + b.height / 2
+  webcamWindow.setBounds({
+    x: Math.round(cx - side / 2),
+    y: Math.round(cy - side / 2),
+    width: Math.round(side),
+    height: Math.round(side)
+  })
+}
+
+export interface WebcamPlacement {
+  size: number
+  /** 0..1 fraction of the available horizontal/vertical travel on whichever
+   *  display the bubble currently sits on — i.e. 0 = flush left/top,
+   *  1 = flush right/bottom. ffmpeg resolves these against the actual
+   *  captured frame's real pixel size at encode time (via main_w/main_h),
+   *  so this works regardless of the display's DPI scaling. */
+  xFrac: number
+  yFrac: number
+}
+
+/** Reads the webcam bubble's current on-screen position so the final
+ *  composited video can place the circle wherever the user actually left
+ *  it, instead of always hardcoding the bottom-right corner. Must be called
+ *  before the window closes. */
+export function getWebcamPlacement(): WebcamPlacement | null {
+  if (!webcamWindow || webcamWindow.isDestroyed()) return null
+  const b = webcamWindow.getBounds()
+  const display = screen.getDisplayNearestPoint({
+    x: b.x + b.width / 2,
+    y: b.y + b.height / 2
+  })
+  const area = display.bounds
+  const clamp = (v: number): number => Math.min(1, Math.max(0, v))
+  return {
+    size: b.width,
+    xFrac: clamp((b.x - area.x) / Math.max(1, area.width - b.width)),
+    yFrac: clamp((b.y - area.y) / Math.max(1, area.height - b.height))
+  }
 }
 
 export function closeRecordingWindows(): void {
