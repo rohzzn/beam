@@ -1,4 +1,8 @@
 :root {
+  /* Tells Chromium to render native form controls (select dropdown popups,
+     scrollbars, etc.) using their dark variants, so option text isn't
+     black-on-black in the OS-rendered <select> popup. */
+  color-scheme: dark;
   --bg: #000000;
   --surface: #13151b;
   --surface-2: rgba(255, 255, 255, 0.05);
@@ -350,6 +354,13 @@ button {
   padding: 5px 8px;
   max-width: 130px;
 }
+.option-row select option {
+  /* Belt-and-suspenders alongside color-scheme: dark above — Chromium's
+     Windows <select> popup is OS-rendered and won't always inherit these
+     from the select itself. */
+  background: #1c1e26;
+  color: var(--text);
+}
 
 .switch {
   width: 38px;
@@ -412,14 +423,22 @@ button {
 
 /* ---------- Control bar ---------- */
 .control-bar {
-  height: 100%;
-  width: 100%;
+  /* Inset from the window edge (rather than filling it) so the rounded-pill
+     antialiasing boundary sits inside an already-transparent margin instead
+     of right at the window's rectangular bounds. Windows' DWM compositor
+     doesn't antialias a transparent window's edge smoothly, so a shape that
+     touches the edge shows a hard/jagged "cut out" look. */
+  position: fixed;
+  inset: 6px;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  background: rgba(19, 21, 27, 0.88);
-  backdrop-filter: blur(14px);
+  /* No backdrop-filter: Chromium can't sample the real desktop behind a
+     transparent Electron window on Windows, so blur() here was blurring
+     nothing and rendering as a hard-edged box artifact. Solid translucent
+     color instead. */
+  background: rgba(15, 16, 21, 0.96);
   box-shadow: var(--shadow-md);
   border-radius: 999px;
   -webkit-app-region: drag;
@@ -473,13 +492,15 @@ button {
 
 /* ---------- Webcam bubble ---------- */
 .webcam-bubble {
-  width: 100%;
-  height: 100%;
+  /* See .control-bar comment: inset from the window edge so the circle's
+     antialiasing boundary doesn't sit exactly on the transparent window's
+     rectangular bounds. */
+  position: fixed;
+  inset: 6px;
   border-radius: 50%;
   overflow: hidden;
   border: 3px solid rgba(255, 255, 255, 0.14);
   box-shadow: var(--shadow-md);
-  position: relative;
   -webkit-app-region: drag;
   background: var(--surface);
   animation: popIn 0.32s var(--ease-spring);
