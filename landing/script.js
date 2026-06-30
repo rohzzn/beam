@@ -23,9 +23,26 @@ document.querySelectorAll('.feature').forEach((el, i) => {
   observer.observe(el)
 })
 
-// Update once a real GitHub Release exists: this points at the latest
-// release's assets page, which is stable even as the version number changes.
-const RELEASE_URL = 'https://github.com/REPLACE_ME/beam/releases/latest'
-document.querySelectorAll('#download-btn').forEach((el) => {
-  el.href = RELEASE_URL
-})
+// All "Download for Windows" buttons start out pointing at the releases
+// page (works with zero JS, just needs one extra click). On load we look
+// up the actual latest release via the GitHub API and, if it has a Windows
+// installer attached, repoint every button straight at that file so the
+// click triggers an immediate download instead of a page visit. This stays
+// correct release after release without ever touching this file again.
+const REPO = 'rohzzn/beam'
+const downloadButtons = document.querySelectorAll('.js-download')
+
+fetch(`https://api.github.com/repos/${REPO}/releases/latest`)
+  .then((res) => (res.ok ? res.json() : null))
+  .then((release) => {
+    const asset = release?.assets?.find((a) => a.name.endsWith('.exe'))
+    if (!asset) return
+    downloadButtons.forEach((el) => {
+      el.href = asset.browser_download_url
+      el.setAttribute('download', asset.name)
+    })
+  })
+  .catch(() => {
+    // Offline, rate-limited, or no release published yet — buttons keep
+    // their releases-page fallback href from the HTML.
+  })

@@ -7,7 +7,17 @@ export default function Logo({ size = 26 }: { size?: number }): React.JSX.Elemen
       viewBox="0 0 1024 1024"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect width="1024" height="1024" rx="220" fill="#0A0A0D" />
+      <rect width="1024" height="1024" rx="220" fill="#221F2E" />
+      <rect
+        x="11"
+        y="11"
+        width="1002"
+        height="1002"
+        rx="209"
+        fill="none"
+        stroke="rgba(255,255,255,0.10)"
+        strokeWidth="22"
+      />
       <circle cx="660" cy="360" r="270" fill="#4D2FF5" />
     </svg>
   )

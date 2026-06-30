@@ -63,10 +63,17 @@ export async function overlayWebcamBubble(
   margin = 36
 ): Promise<void> {
   const r = bubbleSize / 2
+  // A hard if/lte step here (alpha = 255 or 0, nothing between) gives the
+  // circle a visibly jagged, stair-stepped pixel edge with no anti-aliasing.
+  // Feathering alpha linearly over a ~1.5px band around the radius (using
+  // hypot for distance-from-center) gives a smooth, anti-aliased edge
+  // instead, matching how a CSS border-radius circle would render.
+  const feather = 1.5
+  const alphaExpr = `255*clip((${r}-hypot(X-${r},Y-${r}))/${feather}+0.5,0,1)`
   const filter =
     `[1:v]scale=${bubbleSize}:${bubbleSize}:force_original_aspect_ratio=increase,` +
     `crop=${bubbleSize}:${bubbleSize},format=yuva420p,` +
-    `geq=lum='p(X,Y)':a='if(lte(pow(X-${r},2)+pow(Y-${r},2),pow(${r},2)),255,0)'[circle];` +
+    `geq=lum='p(X,Y)':a='${alphaExpr}'[circle];` +
     `[0:v][circle]overlay=W-${bubbleSize + margin}:H-${bubbleSize + margin}[out]`
 
   await run([

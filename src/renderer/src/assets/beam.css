@@ -288,7 +288,14 @@ button {
 }
 .source-card__thumb {
   width: 100%;
-  height: 64px;
+  /* Match the thumbnail's own aspect ratio (desktopCapturer requests 320x180
+     = 16:9) instead of a fixed pixel height. With a fixed height, growing
+     the window widens this box but not its height, so object-fit: cover
+     has to crop away more and more of the image vertically as the window
+     gets wider — the screen preview ends up as an ever-thinner sliver,
+     which reads as "stretched". A fixed aspect ratio keeps the crop
+     proportional at any window size. */
+  aspect-ratio: 16 / 9;
   object-fit: cover;
   background: #000;
   display: block;
