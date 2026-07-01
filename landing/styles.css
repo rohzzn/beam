@@ -119,6 +119,21 @@ svg {
 .nav__cta {
   grid-column: 3;
   justify-self: end;
+  white-space: nowrap;
+}
+.nav__cta-short {
+  display: none;
+}
+@media (max-width: 480px) {
+  .nav {
+    padding: 14px 18px;
+  }
+  .nav__cta-full {
+    display: none;
+  }
+  .nav__cta-short {
+    display: inline;
+  }
 }
 
 /* ---------- buttons ---------- */
@@ -185,14 +200,23 @@ svg {
   background: var(--accent);
 }
 .hero h1 {
-  font-size: clamp(38px, 6vw, 68px);
+  font-size: clamp(32px, 6vw, 68px);
   font-weight: 700;
   letter-spacing: -0.03em;
-  line-height: 1.05;
+  line-height: 1.08;
   margin: 0 0 22px;
 }
 .hero h1 span {
   color: var(--accent);
+}
+/* The <br> gives a deliberate two-line split at comfortable widths, but on
+   narrow screens each half is still too long to fit its own line, so the
+   forced break just creates an extra, more awkward wrap on top of it.
+   Dropping it lets the whole heading reflow naturally instead. */
+@media (max-width: 640px) {
+  .hero__br {
+    display: none;
+  }
 }
 .hero p {
   font-size: clamp(16px, 2vw, 19px);
@@ -540,5 +564,48 @@ svg {
   }
   .hero {
     padding-top: 90px;
+  }
+  .section,
+  .cta-band {
+    padding-top: 72px;
+    padding-bottom: 72px;
+  }
+}
+
+@media (max-width: 560px) {
+  .wrap {
+    padding: 0 20px;
+  }
+  .hero {
+    padding: 84px 20px 48px;
+  }
+  .hero__ctas {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .hero__ctas .btn {
+    justify-content: center;
+  }
+  .mockup-frame {
+    margin-top: 44px;
+    padding: 12px;
+    border-radius: var(--radius);
+  }
+  .mockup__stage {
+    min-height: 220px;
+  }
+  .section,
+  .cta-band {
+    padding: 56px 20px;
+  }
+  .section__head {
+    margin-bottom: 40px;
+  }
+  .footer {
+    padding: 28px 20px;
+  }
+  .footer__inner {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
