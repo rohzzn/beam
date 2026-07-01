@@ -80,6 +80,12 @@ export function createControlBar(): BrowserWindow {
     y,
     frame: false,
     transparent: true,
+    // Windows' DWM compositor needs an explicit fully-transparent backing
+    // color for a frameless transparent window — leaving it unset produces a
+    // faint hard-edged rectangular fringe around rounded/circular CSS shapes
+    // (the "pill/circle edges aren't cut off properly" artifact), because it
+    // falls back to an opaque default before the first paint defines it.
+    backgroundColor: '#00000000',
     hasShadow: false,
     resizable: false,
     movable: true,
@@ -113,6 +119,7 @@ export function createInputOverlay(): BrowserWindow {
     height: display.bounds.height,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     hasShadow: false,
     resizable: false,
     movable: false,
@@ -163,6 +170,7 @@ export function createWebcamBubble(): BrowserWindow {
     maxHeight: WEBCAM_MAX_SIZE,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
     hasShadow: false,
     resizable: true,
     movable: true,
@@ -260,6 +268,7 @@ export function openRegionSelectWindow(): Promise<RegionRect | null> {
       height: display.bounds.height,
       frame: false,
       transparent: true,
+      backgroundColor: '#00000000',
       hasShadow: false,
       resizable: false,
       movable: false,
@@ -295,7 +304,7 @@ export function closeRecordingWindows(): void {
   inputOverlayWindow?.close()
 }
 
-export function createEditorWindow(filePath: string): BrowserWindow {
+export function createEditorWindow(filePath: string, micPath?: string | null): BrowserWindow {
   editorWindow = new BrowserWindow({
     width: 1000,
     height: 700,
@@ -312,6 +321,7 @@ export function createEditorWindow(filePath: string): BrowserWindow {
   editorWindow.on('closed', () => {
     editorWindow = null
   })
-  load(editorWindow, `/editor?file=${encodeURIComponent(filePath)}`)
+  const micParam = micPath ? `&mic=${encodeURIComponent(micPath)}` : ''
+  load(editorWindow, `/editor?file=${encodeURIComponent(filePath)}${micParam}`)
   return editorWindow
 }

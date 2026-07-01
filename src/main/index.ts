@@ -14,11 +14,12 @@ import { createReadStream, statSync } from 'fs'
 import { Readable } from 'stream'
 import type { ReadableStream as NodeWebReadableStream } from 'stream/web'
 import icon from '../../resources/icon.png?asset'
-import { createHomeWindow } from './windows'
+import { createHomeWindow, getHomeWindow } from './windows'
 import { registerIpcHandlers } from './ipc'
 import { recorderState } from './state'
 import { registerHotkeys, unregisterHotkeys } from './hotkeys'
 import { initAutoUpdater, checkForUpdatesManually } from './updater'
+import { sweepTempDir } from './paths'
 
 // Must run before app is ready. The renderer is served from http://localhost
 // in dev (and from an `app://`-equivalent file origin in prod), so a plain
@@ -32,6 +33,23 @@ protocol.registerSchemesAsPrivileged([
     privileges: { standard: true, supportFetchAPI: true, stream: true, corsEnabled: true }
   }
 ])
+
+// Without this, launching Beam a second time (Start Menu, startup + manual
+// open, a stray leftover process from a previous run) spins up a second
+// tray icon and a second registration of the same global hotkey. Only one
+// instance can actually win the OS-level hotkey registration, but which one
+// is unpredictable — and a second idle instance still has its own (wrong)
+// idea of whether a recording is active, which is its own source of "the
+// hotkey did something weird" bugs independent of the key-repeat issue
+// above. Bail out of the second launch entirely and just focus the first.
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+}
+app.on('second-instance', () => {
+  getHomeWindow()?.show()
+  getHomeWindow()?.focus()
+})
 
 let tray: Tray | null = null
 
@@ -134,6 +152,11 @@ app.whenReady().then(() => {
     })
   })
 
+  try {
+    sweepTempDir()
+  } catch (err) {
+    console.error('[beam] temp dir sweep failed', err)
+  }
   setupDisplayMediaHandler()
   registerIpcHandlers()
   registerHotkeys()

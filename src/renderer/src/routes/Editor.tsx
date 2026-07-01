@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { toPlaybackUrl } from '../lib/fileUrl'
-import type { TrimSegment } from '../../../preload/index'
+import type { CaptionStyle, TrimSegment } from '../../../preload/index'
 import {
   IconCheck,
   IconCopy,
@@ -22,26 +22,40 @@ function formatTime(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export default function Editor({ filePath }: { filePath: string }): React.JSX.Element {
+export default function Editor({
+  filePath,
+  micPath
+}: {
+  filePath: string
+  micPath?: string | null
+}): React.JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef<{ index: number; edge: 'start' | 'end' } | null>(null)
+  const dragRectRef = useRef<DOMRect | null>(null)
+  const pendingXRef = useRef<number | null>(null)
+  const rafRef = useRef<number | null>(null)
 
   const [duration, setDuration] = useState(0)
   const [current, setCurrent] = useState(0)
   const [segments, setSegments] = useState<TrimSegment[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
-  const [busy, setBusy] = useState<'trim' | 'gif' | 'transcribe' | null>(null)
+  const [busy, setBusy] = useState<'trim' | 'gif' | 'transcribe' | 'captions' | null>(null)
   const [statusMsg, setStatusMsg] = useState('')
   const [copied, setCopied] = useState(false)
 
+  const [srtPath, setSrtPath] = useState<string | null>(null)
+  const [captionFontSize, setCaptionFontSize] = useState(24)
+  const [captionColor, setCaptionColor] = useState('#ffffff')
+  const [captionPosition, setCaptionPosition] = useState<CaptionStyle['position']>('bottom')
+
   useEffect(() => {
-    function onMove(e: PointerEvent): void {
+    function applyDrag(clientX: number): void {
       const dragging = draggingRef.current
-      if (!dragging || !trackRef.current || duration === 0) return
-      const rect = trackRef.current.getBoundingClientRect()
-      const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
+      const rect = dragRectRef.current
+      if (!dragging || !rect || duration === 0) return
+      const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
       const time = ratio * duration
 
       setSegments((prev) => {
@@ -61,14 +75,35 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
         return next
       })
     }
+    // Raw pointermove can fire at 120-1000Hz depending on the mouse/display,
+    // far faster than React (or the compositor) can actually paint. Without
+    // throttling, every single move event forced a synchronous state update
+    // and re-render — that pile-up of redundant work is what "laggy timeline
+    // drag" actually was. Coalescing to one commit per animation frame keeps
+    // the drag perfectly smooth at whatever the display's real refresh rate is.
+    function onMove(e: PointerEvent): void {
+      if (!draggingRef.current) return
+      pendingXRef.current = e.clientX
+      if (rafRef.current !== null) return
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null
+        if (pendingXRef.current !== null) applyDrag(pendingXRef.current)
+      })
+    }
     function onUp(): void {
       draggingRef.current = null
+      dragRectRef.current = null
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
     return () => {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
     }
   }, [duration])
 
@@ -200,10 +235,29 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
     setBusy('transcribe')
     setStatusMsg('Transcribing…')
     try {
-      const res = await window.beam.transcribe(filePath)
+      const res = await window.beam.transcribe(filePath, micPath ?? undefined)
+      setSrtPath(res.srtPath)
       setStatusMsg(res.text || 'No speech detected.')
     } catch (err) {
       setStatusMsg(`Transcription isn't set up yet (${(err as Error).message})`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function handleBurnCaptions(): Promise<void> {
+    if (!srtPath) return
+    setBusy('captions')
+    setStatusMsg('Adding captions…')
+    try {
+      const out = await window.beam.burnCaptions(filePath, srtPath, {
+        fontSize: captionFontSize,
+        color: captionColor,
+        position: captionPosition
+      })
+      setStatusMsg(`Saved with captions: ${out}`)
+    } catch (err) {
+      setStatusMsg(`Adding captions failed: ${(err as Error).message}`)
     } finally {
       setBusy(null)
     }
@@ -286,6 +340,46 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
           </button>
         </div>
 
+        {srtPath && (
+          <div className="caption-panel">
+            <span className="caption-panel__label">Captions</span>
+            <select
+              value={captionPosition}
+              onChange={(e) => setCaptionPosition(e.target.value as CaptionStyle['position'])}
+              title="Caption position"
+            >
+              <option value="bottom">Bottom</option>
+              <option value="middle">Middle</option>
+              <option value="top">Top</option>
+            </select>
+            <select
+              value={captionFontSize}
+              onChange={(e) => setCaptionFontSize(Number(e.target.value))}
+              title="Caption size"
+            >
+              <option value={18}>Small</option>
+              <option value={24}>Medium</option>
+              <option value={32}>Large</option>
+              <option value={42}>X-Large</option>
+            </select>
+            <input
+              className="caption-panel__color"
+              type="color"
+              value={captionColor}
+              onChange={(e) => setCaptionColor(e.target.value)}
+              title="Caption color"
+            />
+            <div style={{ flex: 1 }} />
+            <button
+              className="btn btn-secondary"
+              disabled={busy !== null}
+              onClick={handleBurnCaptions}
+            >
+              {busy === 'captions' ? <span className="spinner" /> : null} Add captions to video
+            </button>
+          </div>
+        )}
+
         <div className="trim-track" ref={trackRef} onClick={seekFromTrackClick}>
           {segments.map((seg, i) => {
             const leftPct = duration ? (seg.start / duration) * 100 : 0
@@ -315,6 +409,7 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
                   onPointerDown={(e) => {
                     e.stopPropagation()
                     draggingRef.current = { index: i, edge: 'start' }
+                    dragRectRef.current = trackRef.current?.getBoundingClientRect() ?? null
                   }}
                 />
                 <div
@@ -324,6 +419,7 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
                   onPointerDown={(e) => {
                     e.stopPropagation()
                     draggingRef.current = { index: i, edge: 'end' }
+                    dragRectRef.current = trackRef.current?.getBoundingClientRect() ?? null
                   }}
                 />
               </div>

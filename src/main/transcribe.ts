@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { join, basename, extname } from 'path'
 import { writeFile, unlink, readFile } from 'fs/promises'
+import { existsSync } from 'fs'
 import { getTempDir } from './paths'
 import { extractAudioForTranscription } from './ffmpeg'
 
@@ -60,11 +61,21 @@ function buildSrt(chunks: TranscriptionChunk[]): string {
 }
 
 export async function transcribeFile(
-  filePath: string
+  filePath: string,
+  micPath?: string
 ): Promise<{ text: string; srtPath: string | null }> {
+  // Mic and system audio are mixed into one track in the final video, so
+  // extracting from filePath directly would transcribe whatever the OS
+  // played too (music, notification sounds, other apps) right alongside the
+  // user's actual speech. When a recording captured the mic separately, use
+  // that isolated copy instead — it's a temp file handed off specifically
+  // for this, so it's deleted once transcription has consumed it.
+  const useMic = !!micPath && existsSync(micPath)
+  const source = useMic ? micPath : filePath
+
   const tempDir = getTempDir()
   const wavPath = join(tempDir, `transcribe-${Date.now()}.wav`)
-  await extractAudioForTranscription(filePath, wavPath)
+  await extractAudioForTranscription(source, wavPath)
 
   try {
     const audio = await wavToFloat32(wavPath)
@@ -84,5 +95,6 @@ export async function transcribeFile(
     return { text: result.text.trim(), srtPath }
   } finally {
     await unlink(wavPath).catch(() => {})
+    if (useMic) await unlink(micPath!).catch(() => {})
   }
 }

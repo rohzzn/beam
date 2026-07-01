@@ -1,6 +1,6 @@
 import { ipcMain, desktopCapturer, shell, clipboard, app, BrowserWindow, dialog } from 'electron'
 import { join } from 'path'
-import { writeFile, unlink, copyFile } from 'fs/promises'
+import { writeFile, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
 import { execFile } from 'child_process'
 import {
@@ -18,8 +18,9 @@ import {
   overlayWebcamBubble,
   trimSegments,
   exportGifSegments,
-  applyAutoZoom,
-  TrimSegment
+  burnCaptions,
+  TrimSegment,
+  CaptionStyle
 } from './ffmpeg'
 import { recorderState, resetRecorderState, RecordingOptions, RegionRect } from './state'
 import { transcribeFile } from './transcribe'
@@ -53,14 +54,6 @@ export function registerIpcHandlers(): void {
     getWebcamWindow()?.webContents.send('recording:control-event', payload)
   })
 
-  // Marks t=0 for the auto-zoom click timeline. Sent right after the
-  // renderer's MediaRecorder actually starts, rather than assumed from
-  // beginRecording(), since window creation + getDisplayMedia setup can
-  // take a variable amount of time before capture truly begins.
-  ipcMain.on('recording:capture-started', () => {
-    recorderState.captureStartedAt = Date.now()
-  })
-
   ipcMain.on('webcam:resize', (_evt, deltaPx: number) => {
     resizeWebcamBubble(deltaPx)
   })
@@ -81,9 +74,21 @@ export function registerIpcHandlers(): void {
     await maybeFinalize()
   })
 
+  ipcMain.handle('recording:submit-mic', async (_evt, buffer: ArrayBuffer) => {
+    const dir = getTempDir()
+    const filePath = join(dir, `mic-${Date.now()}.webm`)
+    await writeFile(filePath, Buffer.from(buffer))
+    recorderState.micBufferPath = filePath
+    await maybeFinalize()
+  })
+
   ipcMain.handle('recording:cancel', async () => {
     stopInputMonitor()
     closeRecordingWindows()
+    const { micBufferPath } = recorderState
+    if (micBufferPath && existsSync(micBufferPath)) {
+      await unlink(micBufferPath).catch(() => {})
+    }
     await cleanupTempFiles()
     resetRecorderState()
     getHomeWindow()?.show()
@@ -95,6 +100,16 @@ export function registerIpcHandlers(): void {
       const dir = getOutputDir()
       const outPath = join(dir, timestampedFilename('mp4'))
       await trimSegments(payload.filePath, outPath, payload.segments)
+      return outPath
+    }
+  )
+
+  ipcMain.handle(
+    'editor:burnCaptions',
+    async (_evt, payload: { filePath: string; srtPath: string; style: CaptionStyle }) => {
+      const dir = getOutputDir()
+      const outPath = join(dir, timestampedFilename('mp4'))
+      await burnCaptions(payload.filePath, payload.srtPath, outPath, payload.style)
       return outPath
     }
   )
@@ -126,8 +141,8 @@ export function registerIpcHandlers(): void {
     getHomeWindow()?.show()
   })
 
-  ipcMain.handle('transcription:run', async (_evt, filePath: string) => {
-    return transcribeFile(filePath)
+  ipcMain.handle('transcription:run', async (_evt, filePath: string, micPath?: string) => {
+    return transcribeFile(filePath, micPath)
   })
 
   ipcMain.handle('app:getVideosDir', () => getOutputDir())
@@ -188,9 +203,10 @@ async function copyFileToClipboard(filePath: string): Promise<void> {
 }
 
 async function maybeFinalize(): Promise<void> {
-  const { options, screenBufferPath, webcamBufferPath, clickEvents } = recorderState
+  const { options, screenBufferPath, webcamBufferPath, micBufferPath } = recorderState
   if (!options || !screenBufferPath) return
   if (options.webcamEnabled && !webcamBufferPath) return
+  if (options.micEnabled && !micBufferPath) return
 
   const outDir = getOutputDir()
   const outPath = join(outDir, timestampedFilename('mp4'))
@@ -200,48 +216,34 @@ async function maybeFinalize(): Promise<void> {
   const placement = options.webcamEnabled ? getWebcamPlacement() : null
   const region = options.region ?? null
 
-  // Auto-zoom is a second pass over the already-composited video, so the
-  // first pass writes to a temp file instead of the final output whenever
-  // there's actually something to zoom to.
-  const wantsZoom = !!options.autoZoom && clickEvents.length > 0
-  const compositePath = wantsZoom ? join(getTempDir(), `composite-${Date.now()}.mp4`) : outPath
-
   try {
     if (options.webcamEnabled && webcamBufferPath) {
       await overlayWebcamBubble(
         screenBufferPath,
         webcamBufferPath,
-        compositePath,
+        outPath,
         quality,
         placement,
         region
       )
     } else {
-      await transcodeScreenOnly(screenBufferPath, compositePath, quality, region)
+      await transcodeScreenOnly(screenBufferPath, outPath, quality, region)
     }
   } catch (err) {
     console.error('ffmpeg processing failed', err)
-    await transcodeScreenOnly(screenBufferPath, compositePath, quality, region).catch((e) =>
+    await transcodeScreenOnly(screenBufferPath, outPath, quality, region).catch((e) =>
       console.error('fallback transcode also failed', e)
     )
-  }
-
-  if (wantsZoom) {
-    try {
-      await applyAutoZoom(compositePath, outPath, clickEvents)
-    } catch (err) {
-      console.error('auto-zoom failed, using un-zoomed composite', err)
-      await copyFile(compositePath, outPath)
-    } finally {
-      await unlink(compositePath).catch(() => {})
-    }
   }
 
   stopInputMonitor()
   closeRecordingWindows()
   await cleanupTempFiles()
   resetRecorderState()
-  createEditorWindow(outPath)
+  // micBufferPath is deliberately left on disk here (cleanupTempFiles only
+  // touches screen/webcam) — the editor needs it for on-demand
+  // mic-only transcription, and transcribeFile deletes it once used.
+  createEditorWindow(outPath, micBufferPath)
 }
 
 async function cleanupTempFiles(): Promise<void> {

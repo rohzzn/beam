@@ -24,39 +24,30 @@ export interface RecordingOptions {
   region?: RegionRect
   showClicks?: boolean
   showKeystrokes?: boolean
-  autoZoom?: boolean
-}
-
-/** A click captured during recording for the auto-zoom pass, timestamped
- *  relative to when the screen capture actually started (not wall-clock),
- *  so it lines up with the recorded video's own timeline regardless of how
- *  long window/IPC setup took before capture began. */
-export interface ClickEvent {
-  time: number
-  xFrac: number
-  yFrac: number
 }
 
 interface RecorderState {
   options: RecordingOptions | null
   screenBufferPath: string | null
   webcamBufferPath: string | null
-  captureStartedAt: number | null
-  clickEvents: ClickEvent[]
+  /** Independent mic-only recording, captured in parallel with the main
+   *  (mic+system-audio-mixed) track solely so transcription has a copy of
+   *  just the user's voice. Not deleted by the normal temp-file cleanup —
+   *  it's handed off to the editor window for on-demand transcription and
+   *  cleaned up after that runs (or swept on next app launch). */
+  micBufferPath: string | null
 }
 
 export const recorderState: RecorderState = {
   options: null,
   screenBufferPath: null,
   webcamBufferPath: null,
-  captureStartedAt: null,
-  clickEvents: []
+  micBufferPath: null
 }
 
 export function resetRecorderState(): void {
   recorderState.options = null
   recorderState.screenBufferPath = null
   recorderState.webcamBufferPath = null
-  recorderState.captureStartedAt = null
-  recorderState.clickEvents = []
+  recorderState.micBufferPath = null
 }

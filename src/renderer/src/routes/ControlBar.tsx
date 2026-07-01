@@ -25,12 +25,15 @@ export default function ControlBar(): React.JSX.Element {
   const streamsRef = useRef<MediaStream[]>([])
   const audioCtxRef = useRef<AudioContext | null>(null)
   const tickRef = useRef<number | null>(null)
+  const micRecorderRef = useRef<MediaRecorder | null>(null)
+  const micChunksRef = useRef<Blob[]>([])
 
   function handleStop(): void {
     setStatus((prev) => {
       if (prev === 'stopping') return prev
       window.beam.sendControlEvent('stop')
       recorderRef.current?.stop()
+      micRecorderRef.current?.stop()
       return 'stopping'
     })
   }
@@ -42,10 +45,11 @@ export default function ControlBar(): React.JSX.Element {
 
       const audioSources: MediaStream[] = []
       if (screenStream.getAudioTracks().length > 0) audioSources.push(screenStream)
+      let micStream: MediaStream | null = null
       if (options.micEnabled) {
-        const mic = await getMicStream(options.micDeviceId)
-        streamsRef.current.push(mic)
-        audioSources.push(mic)
+        micStream = await getMicStream(options.micDeviceId)
+        streamsRef.current.push(micStream)
+        audioSources.push(micStream)
       }
 
       const videoTrack = screenStream.getVideoTracks()[0] ?? null
@@ -65,8 +69,32 @@ export default function ControlBar(): React.JSX.Element {
         await window.beam.submitScreenBuffer(buffer)
       }
       recorderRef.current = recorder
+
+      // The mic gets mixed into the same track as system audio above for
+      // the final video, which makes the two impossible to separate again
+      // afterwards. Transcription needs just the user's voice — recording
+      // the mic a second time, independently, is the only way to keep an
+      // isolated copy for that without touching the final video's audio.
+      if (micStream) {
+        const micRecorder = new MediaRecorder(new MediaStream(micStream.getAudioTracks()), {
+          mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus'
+            : 'audio/webm'
+        })
+        micChunksRef.current = []
+        micRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) micChunksRef.current.push(e.data)
+        }
+        micRecorder.onstop = async () => {
+          const blob = new Blob(micChunksRef.current, { type: micRecorder.mimeType })
+          const buffer = await blob.arrayBuffer()
+          await window.beam.submitMicBuffer(buffer)
+        }
+        micRecorderRef.current = micRecorder
+        micRecorder.start(1000)
+      }
+
       recorder.start(1000)
-      window.beam.notifyCaptureStarted()
       setStatus('recording')
 
       // If the user stops sharing from the OS-level indicator, end gracefully.
@@ -82,10 +110,12 @@ export default function ControlBar(): React.JSX.Element {
     if (!recorder) return
     if (status === 'recording') {
       recorder.pause()
+      micRecorderRef.current?.pause()
       window.beam.sendControlEvent('pause')
       setStatus('paused')
     } else if (status === 'paused') {
       recorder.resume()
+      micRecorderRef.current?.resume()
       window.beam.sendControlEvent('resume')
       setStatus('recording')
     }

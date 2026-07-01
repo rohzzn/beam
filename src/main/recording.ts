@@ -17,17 +17,11 @@ export async function beginRecording(options: RecordingOptions): Promise<void> {
   if (options.webcamEnabled) {
     webcam = createWebcamBubble()
   }
-  // The overlay window renders visible ripples/keystrokes, so it's only
-  // needed for those — auto-zoom just needs uiohook running to log click
-  // timestamps, with no on-screen presence of its own.
   if (options.showClicks || options.showKeystrokes) {
     createInputOverlay()
-  }
-  if (options.showClicks || options.showKeystrokes || options.autoZoom) {
     startInputMonitor({
       showClicks: !!options.showClicks,
-      showKeystrokes: !!options.showKeystrokes,
-      autoZoom: !!options.autoZoom
+      showKeystrokes: !!options.showKeystrokes
     })
   }
 

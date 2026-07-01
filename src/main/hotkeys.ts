@@ -22,8 +22,7 @@ async function startWithDefaults(): Promise<void> {
     webcamDeviceId: prefs.webcamDeviceId,
     quality: prefs.quality,
     showClicks: prefs.showClicks,
-    showKeystrokes: prefs.showKeystrokes,
-    autoZoom: prefs.autoZoom
+    showKeystrokes: prefs.showKeystrokes
   })
 }
 
@@ -35,6 +34,16 @@ export function registerHotkeys(): void {
   applyHotkeySetting()
 }
 
+// Windows re-fires a registered global hotkey's WM_HOTKEY on OS-level key
+// repeat if the combo is held even slightly too long — very easy to do with
+// a 3-key chord like Alt+Shift+R. Without a guard, that second firing lands
+// a beat after the first, sees a recording now in progress, and immediately
+// stops it — "starts and stops within a second" from a single physical
+// press. 700ms comfortably covers a real held-key repeat without blocking a
+// deliberate quick double-tap to start-then-stop.
+const RETRIGGER_GUARD_MS = 700
+let lastTriggeredAt = 0
+
 export function applyHotkeySetting(): void {
   globalShortcut.unregisterAll()
   const { hotkeyEnabled, startStopHotkey } = loadSettings()
@@ -42,6 +51,10 @@ export function applyHotkeySetting(): void {
 
   try {
     globalShortcut.register(startStopHotkey, () => {
+      const now = Date.now()
+      if (now - lastTriggeredAt < RETRIGGER_GUARD_MS) return
+      lastTriggeredAt = now
+
       if (isRecording()) {
         stopActiveRecording()
       } else {

@@ -1,7 +1,6 @@
 import { screen } from 'electron'
 import { uIOhook, UiohookKey, UiohookKeyboardEvent, UiohookMouseEvent } from 'uiohook-napi'
 import { getInputOverlay } from './windows'
-import { recorderState } from './state'
 
 const MODIFIER_CODES = new Set<number>([
   UiohookKey.Ctrl,
@@ -113,42 +112,21 @@ let onKeyDown: ((e: UiohookKeyboardEvent) => void) | null = null
 export interface InputOverlayOptions {
   showClicks: boolean
   showKeystrokes: boolean
-  autoZoom: boolean
-}
-
-/** Records a click into the recording's timeline for the auto-zoom pass,
- *  timestamped relative to when capture actually started. Silently no-ops
- *  before capture starts or after it's already stopped. */
-function recordClickForZoom(e: UiohookMouseEvent): void {
-  if (recorderState.captureStartedAt === null) return
-  const display = screen.getPrimaryDisplay()
-  const time = (Date.now() - recorderState.captureStartedAt) / 1000
-  if (time < 0) return
-  recorderState.clickEvents.push({
-    time,
-    xFrac: (e.x - display.bounds.x) / display.bounds.width,
-    yFrac: (e.y - display.bounds.y) / display.bounds.height
-  })
 }
 
 export function startInputMonitor(options: InputOverlayOptions): void {
   if (active) return
   active = true
 
-  if (options.showClicks || options.autoZoom) {
+  if (options.showClicks) {
     onMouseDown = (e: UiohookMouseEvent): void => {
-      if (options.showClicks) {
-        const overlay = getInputOverlay()
-        if (overlay && !overlay.isDestroyed()) {
-          const display = screen.getPrimaryDisplay()
-          overlay.webContents.send('input:click', {
-            x: e.x - display.bounds.x,
-            y: e.y - display.bounds.y
-          })
-        }
-      }
-      if (options.autoZoom) {
-        recordClickForZoom(e)
+      const overlay = getInputOverlay()
+      if (overlay && !overlay.isDestroyed()) {
+        const display = screen.getPrimaryDisplay()
+        overlay.webContents.send('input:click', {
+          x: e.x - display.bounds.x,
+          y: e.y - display.bounds.y
+        })
       }
     }
     uIOhook.on('mousedown', onMouseDown)

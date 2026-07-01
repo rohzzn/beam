@@ -652,6 +652,13 @@ button {
   inset: 6px;
   border-radius: 50%;
   overflow: hidden;
+  /* <video> gets its own GPU-composited layer for hardware decode, and on
+     Windows that layer can bypass a plain overflow:hidden/border-radius
+     clip on its ancestor inside a transparent frameless window — the video
+     paints as its full rectangular bounds instead of being cut to the
+     circle. clip-path clips via the compositor itself rather than relying
+     on box clipping, so it holds even for that separately-composited layer. */
+  clip-path: circle(50%);
   border: 3px solid rgba(255, 255, 255, 0.14);
   box-shadow: var(--shadow-md);
   -webkit-app-region: drag;
@@ -663,6 +670,7 @@ button {
   height: 100%;
   object-fit: cover;
   transform: scaleX(-1);
+  clip-path: circle(50%);
 }
 .webcam-bubble__placeholder {
   position: absolute;
@@ -737,6 +745,44 @@ button {
   font-size: 12.5px;
   color: var(--text-dim);
   min-width: 80px;
+}
+.caption-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  animation: fadeInUp 0.25s var(--ease);
+}
+.caption-panel__label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-right: 2px;
+}
+.caption-panel select {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+.caption-panel select option {
+  background: #1c1e26;
+  color: var(--text);
+}
+.caption-panel__color {
+  width: 30px;
+  height: 26px;
+  padding: 2px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
 }
 .trim-track {
   position: relative;

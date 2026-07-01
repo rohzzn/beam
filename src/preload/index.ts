@@ -15,6 +15,12 @@ export interface TrimSegment {
   end: number
 }
 
+export interface CaptionStyle {
+  fontSize: number
+  color: string
+  position: 'top' | 'middle' | 'bottom'
+}
+
 export interface RecordingOptions {
   sourceId: string
   sourceName: string
@@ -27,7 +33,6 @@ export interface RecordingOptions {
   region?: RegionRect
   showClicks?: boolean
   showKeystrokes?: boolean
-  autoZoom?: boolean
 }
 
 export interface SourceInfo {
@@ -47,7 +52,6 @@ export interface RecordingPrefs {
   quality: Quality
   showClicks: boolean
   showKeystrokes: boolean
-  autoZoom: boolean
 }
 
 export interface BeamSettings {
@@ -64,11 +68,12 @@ const api = {
   sendControlEvent: (type: 'pause' | 'resume' | 'stop'): void =>
     ipcRenderer.send('recording:control-event', { type }),
   resizeWebcamBubble: (deltaPx: number): void => ipcRenderer.send('webcam:resize', deltaPx),
-  notifyCaptureStarted: (): void => ipcRenderer.send('recording:capture-started'),
   submitScreenBuffer: (buffer: ArrayBuffer): Promise<void> =>
     ipcRenderer.invoke('recording:submit-screen', buffer),
   submitWebcamBuffer: (buffer: ArrayBuffer): Promise<void> =>
     ipcRenderer.invoke('recording:submit-webcam', buffer),
+  submitMicBuffer: (buffer: ArrayBuffer): Promise<void> =>
+    ipcRenderer.invoke('recording:submit-mic', buffer),
   cancelRecording: (): Promise<void> => ipcRenderer.invoke('recording:cancel'),
   onRecordingBegin: (cb: (options: RecordingOptions) => void): (() => void) => {
     const listener = (_evt: unknown, options: RecordingOptions): void => cb(options)
@@ -83,14 +88,19 @@ const api = {
   },
   trim: (filePath: string, segments: TrimSegment[]): Promise<string> =>
     ipcRenderer.invoke('editor:trim', { filePath, segments }),
+  burnCaptions: (filePath: string, srtPath: string, style: CaptionStyle): Promise<string> =>
+    ipcRenderer.invoke('editor:burnCaptions', { filePath, srtPath, style }),
   exportGif: (filePath: string, segments: TrimSegment[]): Promise<string> =>
     ipcRenderer.invoke('editor:exportGif', { filePath, segments }),
   reveal: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:reveal', filePath),
   copyPath: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:copyPath', filePath),
   copyFile: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:copyFile', filePath),
   openHome: (): Promise<void> => ipcRenderer.invoke('editor:openHome'),
-  transcribe: (filePath: string): Promise<{ text: string; srtPath: string | null }> =>
-    ipcRenderer.invoke('transcription:run', filePath),
+  transcribe: (
+    filePath: string,
+    micPath?: string
+  ): Promise<{ text: string; srtPath: string | null }> =>
+    ipcRenderer.invoke('transcription:run', filePath, micPath),
   getVideosDir: (): Promise<string> => ipcRenderer.invoke('app:getVideosDir'),
 
   getSettings: (): Promise<BeamSettings> => ipcRenderer.invoke('settings:get'),

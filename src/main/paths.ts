@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { mkdirSync, existsSync } from 'fs'
+import { mkdirSync, existsSync, readdirSync, unlinkSync } from 'fs'
 import { loadSettings } from './settings'
 
 export function getOutputDir(): string {
@@ -14,6 +14,23 @@ export function getTempDir(): string {
   const dir = join(app.getPath('temp'), 'beam-recorder')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
+}
+
+/** The mic-only buffer from a finished recording is deliberately left in the
+ *  temp dir (see recording.ts) so transcription can use it on demand,
+ *  however long after the recording that happens to be — but if the app
+ *  quits before the user ever transcribes, nothing else would ever clean it
+ *  up. A real recording can't survive a full app restart, so anything left
+ *  in here at the next launch is orphaned by definition; safe to sweep. */
+export function sweepTempDir(): void {
+  const dir = getTempDir()
+  for (const name of readdirSync(dir)) {
+    try {
+      unlinkSync(join(dir, name))
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function timestampedFilename(ext: string): string {

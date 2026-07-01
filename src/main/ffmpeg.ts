@@ -252,238 +252,73 @@ export async function extractAudioForTranscription(
   await run(['-y', '-i', input, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', outputWav])
 }
 
-export interface ZoomClick {
-  time: number
-  xFrac: number
-  yFrac: number
+export interface CaptionStyle {
+  fontSize: number
+  color: string
+  position: 'top' | 'middle' | 'bottom'
 }
 
-function probeDuration(input: string): Promise<number> {
-  return new Promise((resolve) => {
-    const proc = spawn(FFMPEG_BIN, ['-i', input])
-    let stderr = ''
-    proc.stderr.on('data', (d) => {
-      stderr += d.toString()
-    })
-    proc.on('error', () => resolve(0))
-    proc.on('close', () => {
-      const match = /Duration: (\d+):(\d+):(\d+\.\d+)/.exec(stderr)
-      if (!match) {
-        resolve(0)
-        return
-      }
-      const [, h, m, s] = match
-      resolve(parseInt(h, 10) * 3600 + parseInt(m, 10) * 60 + parseFloat(s))
-    })
-  })
+// ASS/libass numpad-style alignment codes.
+const CAPTION_ALIGNMENT: Record<CaptionStyle['position'], number> = {
+  bottom: 2,
+  middle: 5,
+  top: 8
 }
 
-function probeVideoDimensions(input: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve) => {
-    const proc = spawn(FFMPEG_BIN, ['-i', input])
-    let stderr = ''
-    proc.stderr.on('data', (d) => {
-      stderr += d.toString()
-    })
-    proc.on('error', () => resolve({ width: 1920, height: 1080 }))
-    proc.on('close', () => {
-      const match = /, (\d{3,5})x(\d{3,5}) /.exec(stderr)
-      if (!match) {
-        resolve({ width: 1920, height: 1080 })
-        return
-      }
-      resolve({ width: parseInt(match[1], 10), height: parseInt(match[2], 10) })
-    })
-  })
+/** ffmpeg's filtergraph mini-language treats backslash, colon, and single
+ *  quote as syntax — all three show up routinely in a Windows path (drive
+ *  letter colon, backslash separators), so they have to be escaped before
+ *  being embedded as a filter option value. */
+function escapeFilterPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'")
 }
 
-function probeFps(input: string): Promise<number> {
-  return new Promise((resolve) => {
-    const proc = spawn(FFMPEG_BIN, ['-i', input])
-    let stderr = ''
-    proc.stderr.on('data', (d) => {
-      stderr += d.toString()
-    })
-    proc.on('error', () => resolve(30))
-    proc.on('close', () => {
-      const match = /(\d+(?:\.\d+)?) fps/.exec(stderr)
-      resolve(match ? parseFloat(match[1]) : 30)
-    })
-  })
+/** Converts a #RRGGBB hex color into libass's &HAABBGGRR format (alpha then
+ *  blue/green/red — reversed from CSS order) used by the subtitles filter's
+ *  force_style override. Alpha is always opaque; this only controls hue. */
+function hexToAssColor(hex: string): string {
+  const clean = hex.replace('#', '')
+  const r = clean.slice(0, 2)
+  const g = clean.slice(2, 4)
+  const b = clean.slice(4, 6)
+  return `&H00${b}${g}${r}`
 }
 
-interface ZoomWindow {
-  start: number
-  end: number
-  xFrac: number
-  yFrac: number
-}
-
-interface ZoomTimelineSegment {
-  start: number
-  end: number
-  /** null = full-frame; otherwise linearly interpolates the zoom amount
-   *  (0 = full frame, 1 = fully zoomed in) from `from` to `to` across the
-   *  segment's own local duration. */
-  zoom: { xFrac: number; yFrac: number; from: number; to: number } | null
-}
-
-const ZOOM_LEVEL = 1.55
-const ZOOM_LEAD_IN = 0.3
-const ZOOM_TRAIL_OUT = 1.8
-const ZOOM_EASE_DUR = 0.35
-const ZOOM_MERGE_GAP = 3
-
-/** Turns raw click timestamps into a full timeline covering [0, duration]:
- *  alternating full-frame segments and zoom segments (ease-in / hold /
- *  ease-out) centered on wherever the user was clicking. Nearby clicks are
- *  clustered into a single zoom window rather than zooming for every click. */
-function buildZoomTimeline(clicks: ZoomClick[], duration: number): ZoomTimelineSegment[] {
-  const sorted = [...clicks].sort((a, b) => a.time - b.time)
-
-  const clusters: { first: number; last: number; xFrac: number; yFrac: number }[] = []
-  for (const c of sorted) {
-    const prev = clusters[clusters.length - 1]
-    if (prev && c.time - prev.last <= ZOOM_MERGE_GAP) {
-      prev.last = c.time
-      prev.xFrac = c.xFrac
-      prev.yFrac = c.yFrac
-    } else {
-      clusters.push({ first: c.time, last: c.time, xFrac: c.xFrac, yFrac: c.yFrac })
-    }
-  }
-
-  const windows: ZoomWindow[] = []
-  for (const c of clusters) {
-    const start = Math.max(0, c.first - ZOOM_LEAD_IN)
-    const end = Math.min(duration, c.last + ZOOM_TRAIL_OUT)
-    if (end - start < 0.05) continue
-    const prev = windows[windows.length - 1]
-    if (prev && start <= prev.end) {
-      prev.end = Math.max(prev.end, end)
-      prev.xFrac = c.xFrac
-      prev.yFrac = c.yFrac
-    } else {
-      windows.push({ start, end, xFrac: c.xFrac, yFrac: c.yFrac })
-    }
-  }
-
-  const segments: ZoomTimelineSegment[] = []
-  let cursor = 0
-  for (const w of windows) {
-    if (w.start > cursor) segments.push({ start: cursor, end: w.start, zoom: null })
-
-    const winLen = w.end - w.start
-    if (winLen <= 2 * ZOOM_EASE_DUR) {
-      const mid = (w.start + w.end) / 2
-      if (mid > w.start) {
-        segments.push({ start: w.start, end: mid, zoom: { ...w, from: 0, to: 1 } })
-      }
-      if (w.end > mid) {
-        segments.push({ start: mid, end: w.end, zoom: { ...w, from: 1, to: 0 } })
-      }
-    } else {
-      segments.push({
-        start: w.start,
-        end: w.start + ZOOM_EASE_DUR,
-        zoom: { ...w, from: 0, to: 1 }
-      })
-      segments.push({
-        start: w.start + ZOOM_EASE_DUR,
-        end: w.end - ZOOM_EASE_DUR,
-        zoom: { ...w, from: 1, to: 1 }
-      })
-      segments.push({
-        start: w.end - ZOOM_EASE_DUR,
-        end: w.end,
-        zoom: { ...w, from: 1, to: 0 }
-      })
-    }
-    cursor = w.end
-  }
-  if (cursor < duration) segments.push({ start: cursor, end: duration, zoom: null })
-
-  return segments.filter((s) => s.end - s.start > 0.02)
-}
-
-/** Applies a Ken-Burns-style auto-zoom to an already-composited recording,
- *  zooming in around click activity and back out during quiet stretches.
- *  Falls back to a plain copy-through if there's nothing worth zooming to. */
-export async function applyAutoZoom(
+/** Burns an SRT transcript into the video as permanent captions, styled via
+ *  libass's force_style override (the same styling language ASS subtitle
+ *  files use). Re-encodes video — required for any filter — but copies
+ *  audio through untouched, since captions never touch it. */
+export async function burnCaptions(
   input: string,
+  srtPath: string,
   output: string,
-  clicks: ZoomClick[]
+  style: CaptionStyle
 ): Promise<void> {
-  const [duration, { width, height }, fps, hasAudio] = await Promise.all([
-    probeDuration(input),
-    probeVideoDimensions(input),
-    probeFps(input),
-    probeHasAudio(input)
+  const color = hexToAssColor(style.color)
+  const forceStyle =
+    `FontName=Inter,FontSize=${style.fontSize},PrimaryColour=${color},` +
+    `OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,` +
+    `Alignment=${CAPTION_ALIGNMENT[style.position]},MarginV=40`
+  const filter = `subtitles=filename='${escapeFilterPath(srtPath)}':force_style='${forceStyle}'`
+
+  await run([
+    '-y',
+    '-i',
+    input,
+    '-vf',
+    filter,
+    '-c:v',
+    'libx264',
+    '-preset',
+    DEFAULT_QUALITY.preset,
+    '-crf',
+    String(DEFAULT_QUALITY.crf),
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'copy',
+    '-movflags',
+    '+faststart',
+    output
   ])
-
-  if (duration <= 0) {
-    throw new Error('could not determine video duration for auto-zoom')
-  }
-
-  const timeline = buildZoomTimeline(clicks, duration)
-  if (!timeline.some((s) => s.zoom)) {
-    // Nothing landed inside the video's actual duration — just pass through.
-    await run(['-y', '-i', input, '-c', 'copy', output])
-    return
-  }
-
-  const parts: string[] = []
-  const vLabels: string[] = []
-  const aLabels: string[] = []
-
-  timeline.forEach((seg, i) => {
-    const segDur = seg.end - seg.start
-    let vChain = `[0:v]trim=start=${seg.start}:end=${seg.end},setpts=PTS-STARTPTS`
-    if (seg.zoom) {
-      // crop's own w/h can't vary per-frame (ffmpeg needs a fixed output
-      // pad size to configure the filter graph), so a continuously
-      // animated zoom has to go through zoompan instead — it's built for
-      // exactly this and keeps a constant `s` output size regardless of
-      // how the internal zoom/crop varies frame to frame.
-      const { xFrac, yFrac, from, to } = seg.zoom
-      const segFrames = Math.max(1, Math.round(segDur * fps))
-      const progress = `(on/${segFrames})`
-      const zoomAmt = `(${from}+(${(to - from).toFixed(4)})*${progress})`
-      const zoomExpr = `1+${zoomAmt}*${(ZOOM_LEVEL - 1).toFixed(4)}`
-      const xExpr = `min(max(${xFrac.toFixed(4)}*iw-(iw/zoom)/2,0),iw-iw/zoom)`
-      const yExpr = `min(max(${yFrac.toFixed(4)}*ih-(ih/zoom)/2,0),ih-ih/zoom)`
-      vChain +=
-        `,zoompan=z='${zoomExpr}':x='${xExpr}':y='${yExpr}':d=1:` +
-        `s=${width}x${height}:fps=${fps}`
-    }
-    vChain += `[v${i}]`
-    parts.push(vChain)
-    vLabels.push(`[v${i}]`)
-
-    if (hasAudio) {
-      parts.push(`[0:a]atrim=start=${seg.start}:end=${seg.end},asetpts=PTS-STARTPTS[a${i}]`)
-      aLabels.push(`[a${i}]`)
-    }
-  })
-
-  let filter: string
-  let vOut: string
-  let aOut: string | null = null
-  if (hasAudio) {
-    const chain = timeline.map((_, i) => `${vLabels[i]}${aLabels[i]}`).join('')
-    filter = `${parts.join(';')};${chain}concat=n=${timeline.length}:v=1:a=1[outv][outa]`
-    vOut = '[outv]'
-    aOut = '[outa]'
-  } else {
-    const chain = vLabels.join('')
-    filter = `${parts.join(';')};${chain}concat=n=${timeline.length}:v=1:a=0[outv]`
-    vOut = '[outv]'
-  }
-
-  const args = ['-y', '-i', input, '-filter_complex', filter, '-map', vOut]
-  if (aOut) args.push('-map', aOut)
-  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p')
-  if (aOut) args.push('-c:a', 'aac', '-b:a', '192k')
-  args.push('-movflags', '+faststart', output)
-  await run(args)
 }

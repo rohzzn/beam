@@ -18,6 +18,18 @@ nsis:
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  # oneClick:false switches from the generic one-click install blob to a
+  # real multi-page wizard (welcome -> options -> progress -> finish), with
+  # NSIS's own page-transition animations and an animated progress bar.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  installerSidebar: build/installerSidebar.bmp
+  uninstallerSidebar: build/uninstallerSidebar.bmp
+  installerHeader: build/installerHeader.bmp
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

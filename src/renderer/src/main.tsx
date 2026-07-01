@@ -20,8 +20,15 @@ function resolveRoute(): React.JSX.Element {
       return <ControlBar />
     case '/webcam':
       return <WebcamBubble />
-    case '/editor':
-      return <Editor filePath={decodeURIComponent(params.get('file') ?? '')} />
+    case '/editor': {
+      const mic = params.get('mic')
+      return (
+        <Editor
+          filePath={decodeURIComponent(params.get('file') ?? '')}
+          micPath={mic ? decodeURIComponent(mic) : null}
+        />
+      )
+    }
     case '/region-select':
       return <RegionSelect />
     case '/input-overlay':

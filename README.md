@@ -13,14 +13,13 @@
 
 ## What Beam does
 
-Beam gives you the paid feature set of tools like Loom and Screen Studio, running entirely on your own machine.
+Beam is a full-featured screen recorder — capture, edit, and transcribe — running entirely on your own machine.
 
 - **Capture anything** — full screen, a single window, or a custom region you drag out yourself
 - **Webcam bubble** — composites automatically as a circular overlay, freely draggable and resizable while you record
-- **Auto-zoom** — the recording eases toward wherever you're clicking, then back out, so viewers always know where to look
 - **Click ripples and a keystroke overlay** — optional, built for tutorials and product demos
 - **A real editor** — multi-segment trim, export to MP4 or GIF, or copy the finished file straight to your clipboard
-- **Offline AI transcription** — a local Whisper model generates captions on-device, no API key or internet required
+- **AI transcription & auto-captions** — on-device speech-to-text, with captions you can burn into the video and customize (size, color, position)
 - **Global hotkey** — start or stop from anywhere, even when Beam isn't focused
 - **Microphone and system audio**, quality presets, a custom save location, and auto-updates in the background
 
@@ -34,7 +33,7 @@ macOS and Linux are on the way — Beam is already built on cross-platform Elect
 
 ## Why
 
-Tools like Loom and Screen Studio are genuinely good, but they're subscriptions, and your recordings pass through someone else's server before they land on your own hard drive. Beam does the same job, entirely offline, for free, forever.
+Most screen recorders are subscriptions, and your recordings often pass through someone else's server before they land on your own hard drive. Beam skips all of that — free, forever, with everything staying on your machine.
 
 ## Privacy
 
@@ -64,9 +63,9 @@ npm run build:linux  # Linux (AppImage/deb/snap)
 **How it's built:**
 
 - **Capture**: `desktopCapturer` + `getDisplayMedia` — no native screen-capture dependencies
-- **Encoding**: a bundled `ffmpeg-static` binary handles compositing, region cropping, auto-zoom, trimming, and GIF export
-- **Input tracking**: `uiohook-napi` for global click/keystroke capture, powering click ripples, the keystroke overlay, and auto-zoom
-- **Transcription**: a local Whisper model via `@huggingface/transformers`, entirely on-device
+- **Encoding**: a bundled `ffmpeg-static` binary handles compositing, region cropping, trimming, and GIF export
+- **Input tracking**: `uiohook-napi` for global click/keystroke capture, powering click ripples and the keystroke overlay
+- **Transcription & captions**: a Whisper speech model via `@huggingface/transformers`, running on-device; the resulting SRT can be burned into the video via ffmpeg's subtitle renderer, with customizable size, color, and position
 - **UI privacy**: the floating control bar and webcam bubble use `setContentProtection(true)`, so Beam's own interface never leaks into your recordings
 - **Updates**: `electron-updater`, checking GitHub Releases in the background
 

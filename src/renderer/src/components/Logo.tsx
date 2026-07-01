@@ -18,7 +18,7 @@ export default function Logo({ size = 26 }: { size?: number }): React.JSX.Elemen
         stroke="rgba(255,255,255,0.10)"
         strokeWidth="22"
       />
-      <circle cx="660" cy="360" r="270" fill="#4D2FF5" />
+      <circle cx="512" cy="512" r="320" fill="#4D2FF5" />
     </svg>
   )
 }

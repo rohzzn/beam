@@ -1,7 +1,7 @@
 {
   "name": "beam",
   "version": "1.0.0",
-  "description": "Beam — free, local-first screen recording and sharing.",
+  "description": "Beam — free screen recording and sharing, entirely on your machine.",
   "main": "./out/main/index.js",
   "author": "Beam",
   "scripts": {
@@ -12,6 +12,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
+    "icons": "node build/generate-icons.mjs && node build/generate-installer-assets.mjs",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-rebuild -o onnxruntime-node",
     "build:unpack": "npm run build && electron-builder --dir",

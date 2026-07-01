@@ -11,8 +11,7 @@ import {
   IconSettings,
   IconVolume,
   IconWebcam,
-  IconX,
-  IconZoom
+  IconX
 } from '../components/Icons'
 import Logo from '../components/Logo'
 import { QUALITY_OPTIONS } from '../lib/quality'
@@ -73,7 +72,6 @@ export default function Home(): React.JSX.Element {
 
   const [showClicksOn, setShowClicksOn] = useState(false)
   const [showKeystrokesOn, setShowKeystrokesOn] = useState(false)
-  const [autoZoomOn, setAutoZoomOn] = useState(false)
 
   const [region, setRegion] = useState<RegionRect | null>(null)
   const [selectingRegion, setSelectingRegion] = useState(false)
@@ -130,7 +128,6 @@ export default function Home(): React.JSX.Element {
     setQuality(prefs.quality)
     setShowClicksOn(prefs.showClicks)
     setShowKeystrokesOn(prefs.showKeystrokes)
-    setAutoZoomOn(prefs.autoZoom)
     prefsLoaded.current = true
   }
 
@@ -155,8 +152,7 @@ export default function Home(): React.JSX.Element {
       systemAudio: systemAudioOn,
       quality,
       showClicks: showClicksOn,
-      showKeystrokes: showKeystrokesOn,
-      autoZoom: autoZoomOn
+      showKeystrokes: showKeystrokesOn
     })
   }, [
     micOn,
@@ -166,8 +162,7 @@ export default function Home(): React.JSX.Element {
     systemAudioOn,
     quality,
     showClicksOn,
-    showKeystrokesOn,
-    autoZoomOn
+    showKeystrokesOn
   ])
 
   useEffect(() => {
@@ -220,8 +215,7 @@ export default function Home(): React.JSX.Element {
       quality,
       region: tab === 'region' ? (region ?? undefined) : undefined,
       showClicks: showClicksOn,
-      showKeystrokes: showKeystrokesOn,
-      autoZoom: autoZoomOn
+      showKeystrokes: showKeystrokesOn
     })
   }
 
@@ -423,14 +417,6 @@ export default function Home(): React.JSX.Element {
             Keystroke overlay
           </span>
           <Switch on={showKeystrokesOn} onToggle={() => setShowKeystrokesOn((v) => !v)} />
-        </div>
-
-        <div className="option-row">
-          <span className="option-row__label">
-            <IconZoom className="option-row__icon" />
-            Auto-zoom on clicks
-          </span>
-          <Switch on={autoZoomOn} onToggle={() => setAutoZoomOn((v) => !v)} />
         </div>
 
         <div className="quality-options">
