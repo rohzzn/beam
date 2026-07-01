@@ -27,6 +27,7 @@ export interface RecordingOptions {
   region?: RegionRect
   showClicks?: boolean
   showKeystrokes?: boolean
+  autoZoom?: boolean
 }
 
 export interface SourceInfo {
@@ -46,6 +47,7 @@ export interface RecordingPrefs {
   quality: Quality
   showClicks: boolean
   showKeystrokes: boolean
+  autoZoom: boolean
 }
 
 export interface BeamSettings {
@@ -62,6 +64,7 @@ const api = {
   sendControlEvent: (type: 'pause' | 'resume' | 'stop'): void =>
     ipcRenderer.send('recording:control-event', { type }),
   resizeWebcamBubble: (deltaPx: number): void => ipcRenderer.send('webcam:resize', deltaPx),
+  notifyCaptureStarted: (): void => ipcRenderer.send('recording:capture-started'),
   submitScreenBuffer: (buffer: ArrayBuffer): Promise<void> =>
     ipcRenderer.invoke('recording:submit-screen', buffer),
   submitWebcamBuffer: (buffer: ArrayBuffer): Promise<void> =>

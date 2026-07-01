@@ -1,6 +1,6 @@
 import { ipcMain, desktopCapturer, shell, clipboard, app, BrowserWindow, dialog } from 'electron'
 import { join } from 'path'
-import { writeFile, unlink } from 'fs/promises'
+import { writeFile, unlink, copyFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { execFile } from 'child_process'
 import {
@@ -18,6 +18,7 @@ import {
   overlayWebcamBubble,
   trimSegments,
   exportGifSegments,
+  applyAutoZoom,
   TrimSegment
 } from './ffmpeg'
 import { recorderState, resetRecorderState, RecordingOptions, RegionRect } from './state'
@@ -50,6 +51,14 @@ export function registerIpcHandlers(): void {
 
   ipcMain.on('recording:control-event', (_evt, payload: { type: 'pause' | 'resume' | 'stop' }) => {
     getWebcamWindow()?.webContents.send('recording:control-event', payload)
+  })
+
+  // Marks t=0 for the auto-zoom click timeline. Sent right after the
+  // renderer's MediaRecorder actually starts, rather than assumed from
+  // beginRecording(), since window creation + getDisplayMedia setup can
+  // take a variable amount of time before capture truly begins.
+  ipcMain.on('recording:capture-started', () => {
+    recorderState.captureStartedAt = Date.now()
   })
 
   ipcMain.on('webcam:resize', (_evt, deltaPx: number) => {
@@ -179,7 +188,7 @@ async function copyFileToClipboard(filePath: string): Promise<void> {
 }
 
 async function maybeFinalize(): Promise<void> {
-  const { options, screenBufferPath, webcamBufferPath } = recorderState
+  const { options, screenBufferPath, webcamBufferPath, clickEvents } = recorderState
   if (!options || !screenBufferPath) return
   if (options.webcamEnabled && !webcamBufferPath) return
 
@@ -191,24 +200,41 @@ async function maybeFinalize(): Promise<void> {
   const placement = options.webcamEnabled ? getWebcamPlacement() : null
   const region = options.region ?? null
 
+  // Auto-zoom is a second pass over the already-composited video, so the
+  // first pass writes to a temp file instead of the final output whenever
+  // there's actually something to zoom to.
+  const wantsZoom = !!options.autoZoom && clickEvents.length > 0
+  const compositePath = wantsZoom ? join(getTempDir(), `composite-${Date.now()}.mp4`) : outPath
+
   try {
     if (options.webcamEnabled && webcamBufferPath) {
       await overlayWebcamBubble(
         screenBufferPath,
         webcamBufferPath,
-        outPath,
+        compositePath,
         quality,
         placement,
         region
       )
     } else {
-      await transcodeScreenOnly(screenBufferPath, outPath, quality, region)
+      await transcodeScreenOnly(screenBufferPath, compositePath, quality, region)
     }
   } catch (err) {
     console.error('ffmpeg processing failed', err)
-    await transcodeScreenOnly(screenBufferPath, outPath, quality, region).catch((e) =>
+    await transcodeScreenOnly(screenBufferPath, compositePath, quality, region).catch((e) =>
       console.error('fallback transcode also failed', e)
     )
+  }
+
+  if (wantsZoom) {
+    try {
+      await applyAutoZoom(compositePath, outPath, clickEvents)
+    } catch (err) {
+      console.error('auto-zoom failed, using un-zoomed composite', err)
+      await copyFile(compositePath, outPath)
+    } finally {
+      await unlink(compositePath).catch(() => {})
+    }
   }
 
   stopInputMonitor()

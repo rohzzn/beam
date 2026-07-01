@@ -24,22 +24,39 @@ export interface RecordingOptions {
   region?: RegionRect
   showClicks?: boolean
   showKeystrokes?: boolean
+  autoZoom?: boolean
+}
+
+/** A click captured during recording for the auto-zoom pass, timestamped
+ *  relative to when the screen capture actually started (not wall-clock),
+ *  so it lines up with the recorded video's own timeline regardless of how
+ *  long window/IPC setup took before capture began. */
+export interface ClickEvent {
+  time: number
+  xFrac: number
+  yFrac: number
 }
 
 interface RecorderState {
   options: RecordingOptions | null
   screenBufferPath: string | null
   webcamBufferPath: string | null
+  captureStartedAt: number | null
+  clickEvents: ClickEvent[]
 }
 
 export const recorderState: RecorderState = {
   options: null,
   screenBufferPath: null,
-  webcamBufferPath: null
+  webcamBufferPath: null,
+  captureStartedAt: null,
+  clickEvents: []
 }
 
 export function resetRecorderState(): void {
   recorderState.options = null
   recorderState.screenBufferPath = null
   recorderState.webcamBufferPath = null
+  recorderState.captureStartedAt = null
+  recorderState.clickEvents = []
 }

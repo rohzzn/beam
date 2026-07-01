@@ -66,6 +66,7 @@ export default function ControlBar(): React.JSX.Element {
       }
       recorderRef.current = recorder
       recorder.start(1000)
+      window.beam.notifyCaptureStarted()
       setStatus('recording')
 
       // If the user stops sharing from the OS-level indicator, end gracefully.
