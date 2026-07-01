@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { BeamSettings, Quality, RegionRect, SourceInfo } from '../../../preload/index'
 import {
+  IconCaption,
   IconCheck,
   IconClick,
   IconCrop,
@@ -18,12 +19,21 @@ import { QUALITY_OPTIONS } from '../lib/quality'
 
 type Tab = 'screen' | 'window' | 'region'
 
-function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }): React.JSX.Element {
+function Switch({
+  on,
+  onToggle,
+  disabled
+}: {
+  on: boolean
+  onToggle: () => void
+  disabled?: boolean
+}): React.JSX.Element {
   return (
     <button
       type="button"
       className={`switch ${on ? 'on' : ''}`}
       onClick={onToggle}
+      disabled={disabled}
       aria-pressed={on}
     >
       <span className="switch__knob" />
@@ -72,6 +82,7 @@ export default function Home(): React.JSX.Element {
 
   const [showClicksOn, setShowClicksOn] = useState(false)
   const [showKeystrokesOn, setShowKeystrokesOn] = useState(false)
+  const [liveCaptionsOn, setLiveCaptionsOn] = useState(false)
 
   const [region, setRegion] = useState<RegionRect | null>(null)
   const [selectingRegion, setSelectingRegion] = useState(false)
@@ -129,6 +140,7 @@ export default function Home(): React.JSX.Element {
     setQuality(prefs.quality)
     setShowClicksOn(prefs.showClicks)
     setShowKeystrokesOn(prefs.showKeystrokes)
+    setLiveCaptionsOn(prefs.liveCaptions)
     prefsLoaded.current = true
   }
 
@@ -153,7 +165,8 @@ export default function Home(): React.JSX.Element {
       systemAudio: systemAudioOn,
       quality,
       showClicks: showClicksOn,
-      showKeystrokes: showKeystrokesOn
+      showKeystrokes: showKeystrokesOn,
+      liveCaptions: liveCaptionsOn
     })
   }, [
     micOn,
@@ -163,7 +176,8 @@ export default function Home(): React.JSX.Element {
     systemAudioOn,
     quality,
     showClicksOn,
-    showKeystrokesOn
+    showKeystrokesOn,
+    liveCaptionsOn
   ])
 
   useEffect(() => {
@@ -226,7 +240,8 @@ export default function Home(): React.JSX.Element {
       quality,
       region: tab === 'region' ? (region ?? undefined) : undefined,
       showClicks: showClicksOn,
-      showKeystrokes: showKeystrokesOn
+      showKeystrokes: showKeystrokesOn,
+      liveCaptions: micOn && liveCaptionsOn
     })
   }
 
@@ -428,6 +443,19 @@ export default function Home(): React.JSX.Element {
             Keystroke overlay
           </span>
           <Switch on={showKeystrokesOn} onToggle={() => setShowKeystrokesOn((v) => !v)} />
+        </div>
+
+        <div className="option-row">
+          <span className="option-row__label">
+            <IconCaption className="option-row__icon" />
+            Live captions
+            {!micOn && <span className="option-row__hint"> (needs microphone)</span>}
+          </span>
+          <Switch
+            on={liveCaptionsOn && micOn}
+            onToggle={() => setLiveCaptionsOn((v) => !v)}
+            disabled={!micOn}
+          />
         </div>
 
         <div className="quality-options">

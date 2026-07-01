@@ -25,6 +25,34 @@ interface EncodeQuality {
 
 const DEFAULT_QUALITY: EncodeQuality = { crf: 18, preset: 'fast' }
 
+/** Chromium's MediaRecorder writes screen capture as variable-frame-rate
+ *  video — a new frame only when the display actually changes, not on a
+ *  fixed clock — while its audio track runs on a genuinely constant
+ *  sample clock. Transcoding that without pinning the output to a fixed
+ *  framerate leaves ffmpeg to guess how to retime the video, and the
+ *  guess drifts further from the audio the longer the recording runs.
+ *  Probing the source's actual average framerate and forcing the output
+ *  to it (`-r` + `-fps_mode cfr`) makes ffmpeg duplicate/drop frames as
+ *  needed to land on a real constant timeline instead of drifting. */
+function probeFps(input: string): Promise<number> {
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG_BIN, ['-i', input])
+    let stderr = ''
+    proc.stderr.on('data', (d) => {
+      stderr += d.toString()
+    })
+    proc.on('error', () => resolve(30))
+    proc.on('close', () => {
+      const match = /(\d+(?:\.\d+)?) fps/.exec(stderr)
+      const fps = match ? parseFloat(match[1]) : 30
+      // Screen capture's *average* fps in a VFR stream can come out oddly
+      // low (long idle stretches) or implausibly high; clamp to a sane
+      // range rather than trusting it blindly.
+      resolve(Math.min(60, Math.max(15, fps)))
+    })
+  })
+}
+
 export interface RegionCrop {
   xFrac: number
   yFrac: number
@@ -51,11 +79,16 @@ export async function transcodeScreenOnly(
   quality: EncodeQuality = DEFAULT_QUALITY,
   region: RegionCrop | null = null
 ): Promise<void> {
+  const fps = await probeFps(inputWebm)
   const args = ['-y', '-i', inputWebm]
   if (region) {
     args.push('-vf', cropFilter(region))
   }
   args.push(
+    '-r',
+    String(fps),
+    '-fps_mode',
+    'cfr',
     '-c:v',
     'libx264',
     '-preset',
@@ -96,6 +129,14 @@ export async function overlayWebcamBubble(
   region: RegionCrop | null = null,
   margin = 36
 ): Promise<void> {
+  // Screen and webcam are two independently-captured MediaRecorder streams,
+  // each with their own variable frame timing. overlay pairs frames from
+  // both against whatever timeline [0:v] happens to have, so if that base
+  // is itself variable-rate the whole composite inherits the irregularity.
+  // Pinning [0:v] to its own real average fps up front, inside the graph,
+  // gives the rest of the chain a genuine constant timeline to composite
+  // and encode against.
+  const fps = await probeFps(screenWebm)
   const bubbleSize = placement?.size ?? 220
   const r = bubbleSize / 2
   // A hard if/lte step here (alpha = 255 or 0, nothing between) gives the
@@ -114,10 +155,11 @@ export async function overlayWebcamBubble(
   // result afterwards, same as a real recording would only show whatever
   // falls inside the selected rectangle, bubble included.
   let filter =
+    `[0:v]fps=${fps}[base];` +
     `[1:v]scale=${bubbleSize}:${bubbleSize}:force_original_aspect_ratio=increase,` +
     `crop=${bubbleSize}:${bubbleSize},format=yuva420p,` +
     `geq=lum='p(X,Y)':a='${alphaExpr}'[circle];` +
-    `[0:v][circle]overlay=${overlayPos}[out]`
+    `[base][circle]overlay=${overlayPos}[out]`
   let outTag = '[out]'
   if (region) {
     filter += `;[out]${cropFilter(region)}[cropped]`
@@ -136,6 +178,8 @@ export async function overlayWebcamBubble(
     outTag,
     '-map',
     '0:a?',
+    '-fps_mode',
+    'cfr',
     '-c:v',
     'libx264',
     '-preset',
@@ -157,6 +201,42 @@ export async function overlayWebcamBubble(
 export interface TrimSegment {
   start: number
   end: number
+}
+
+/** Crops an already-recorded video down to a user-selected rectangle,
+ *  reusing the same crop filter recording-time region capture uses. Audio
+ *  is copied through untouched — cropping never touches it. */
+export async function cropVideo(
+  input: string,
+  output: string,
+  region: RegionCrop,
+  quality: EncodeQuality = DEFAULT_QUALITY
+): Promise<void> {
+  const fps = await probeFps(input)
+  await run([
+    '-y',
+    '-i',
+    input,
+    '-vf',
+    cropFilter(region),
+    '-r',
+    String(fps),
+    '-fps_mode',
+    'cfr',
+    '-c:v',
+    'libx264',
+    '-preset',
+    quality.preset,
+    '-crf',
+    String(quality.crf),
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'copy',
+    '-movflags',
+    '+faststart',
+    output
+  ])
 }
 
 /** Probes for an audio stream by running ffmpeg with no output — it still

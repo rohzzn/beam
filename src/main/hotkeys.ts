@@ -22,7 +22,8 @@ async function startWithDefaults(): Promise<void> {
     webcamDeviceId: prefs.webcamDeviceId,
     quality: prefs.quality,
     showClicks: prefs.showClicks,
-    showKeystrokes: prefs.showKeystrokes
+    showKeystrokes: prefs.showKeystrokes,
+    liveCaptions: prefs.liveCaptions
   })
 }
 

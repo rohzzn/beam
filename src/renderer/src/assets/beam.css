@@ -401,6 +401,11 @@ button {
   color: var(--text-dim);
   flex-shrink: 0;
 }
+.option-row__hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
 .option-row select {
   background: var(--surface-2);
   color: var(--text);
@@ -430,6 +435,10 @@ button {
 }
 .switch.on {
   background: var(--accent);
+}
+.switch:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .switch__knob {
   position: absolute;
@@ -703,6 +712,10 @@ button {
 .editor__titlebar {
   height: 36px;
   flex-shrink: 0;
+  /* Reserved strip matching titleBarOverlay's own height — the OS draws
+     minimize/maximize/close there, but doesn't make the rest of it
+     draggable on its own; that still has to be opted into via CSS. */
+  -webkit-app-region: drag;
 }
 .editor__top {
   display: flex;
@@ -717,6 +730,7 @@ button {
   gap: 9px;
   font-weight: 650;
   font-size: 14.5px;
+  -webkit-app-region: drag;
 }
 .editor__actions {
   display: flex;
@@ -738,6 +752,57 @@ button {
 .editor__stage video {
   max-width: 100%;
   max-height: 100%;
+}
+/* Shrinks to exactly wrap the <video> element (its own max-width/max-height
+   already preserve aspect ratio within the stage), so the crop overlay's
+   inset:0 lines up pixel-for-pixel with the visible frame without any
+   manual measurement or resize listeners. */
+.editor__video-wrap {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  max-height: 100%;
+}
+.crop-overlay {
+  position: absolute;
+  inset: 0;
+}
+.crop-overlay__mask {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.6);
+}
+.crop-overlay__box {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  cursor: move;
+}
+.crop-overlay__handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  border: 2px solid #fff;
+  border-radius: 50%;
+}
+.crop-overlay__handle.nw {
+  left: -7px;
+  top: -7px;
+  cursor: nwse-resize;
+}
+.crop-overlay__handle.ne {
+  right: -7px;
+  top: -7px;
+  cursor: nesw-resize;
+}
+.crop-overlay__handle.sw {
+  left: -7px;
+  bottom: -7px;
+  cursor: nesw-resize;
+}
+.crop-overlay__handle.se {
+  right: -7px;
+  bottom: -7px;
+  cursor: nwse-resize;
 }
 .editor__bottom {
   flex-shrink: 0;

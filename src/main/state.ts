@@ -24,6 +24,7 @@ export interface RecordingOptions {
   region?: RegionRect
   showClicks?: boolean
   showKeystrokes?: boolean
+  liveCaptions?: boolean
 }
 
 interface RecorderState {

@@ -13,6 +13,7 @@ export interface RecordingPrefs {
   quality: Quality
   showClicks: boolean
   showKeystrokes: boolean
+  liveCaptions: boolean
 }
 
 export interface BeamSettings {
@@ -32,7 +33,8 @@ const DEFAULTS: BeamSettings = {
     systemAudio: false,
     quality: 'high',
     showClicks: false,
-    showKeystrokes: false
+    showKeystrokes: false,
+    liveCaptions: false
   }
 }
 

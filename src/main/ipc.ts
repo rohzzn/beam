@@ -19,11 +19,13 @@ import {
   trimSegments,
   exportGifSegments,
   burnCaptions,
+  cropVideo,
   TrimSegment,
   CaptionStyle
 } from './ffmpeg'
 import { recorderState, resetRecorderState, RecordingOptions, RegionRect } from './state'
 import { transcribeFile } from './transcribe'
+import { queueLiveCaptionChunk, resetLiveCaptions, finalizeLiveTranscript } from './liveCaption'
 import { getQualityPreset } from './quality'
 import { beginRecording } from './recording'
 import { stopInputMonitor } from './inputMonitor'
@@ -89,9 +91,17 @@ export function registerIpcHandlers(): void {
     )
   })
 
+  ipcMain.on(
+    'recording:live-caption-chunk',
+    (_evt, payload: { samples: ArrayBuffer; start: number; duration: number }) => {
+      queueLiveCaptionChunk(new Float32Array(payload.samples), payload.start, payload.duration)
+    }
+  )
+
   ipcMain.handle('recording:cancel', async (_evt, reason?: string) => {
     stopInputMonitor()
     closeRecordingWindows()
+    resetLiveCaptions()
     const { micBufferPath } = recorderState
     if (micBufferPath && existsSync(micBufferPath)) {
       await unlink(micBufferPath).catch(() => {})
@@ -135,6 +145,13 @@ export function registerIpcHandlers(): void {
       return outPath
     }
   )
+
+  ipcMain.handle('editor:crop', async (_evt, payload: { filePath: string; region: RegionRect }) => {
+    const dir = getOutputDir()
+    const outPath = join(dir, timestampedFilename('mp4'))
+    await cropVideo(payload.filePath, outPath, payload.region)
+    return outPath
+  })
 
   ipcMain.handle('editor:reveal', (_evt, filePath: string) => {
     shell.showItemInFolder(filePath)
@@ -251,14 +268,26 @@ async function maybeFinalize(): Promise<void> {
     )
   }
 
+  // Read before resetLiveCaptions() clears the accumulated entries below.
+  // Live captions are transcribed quietly in the background during
+  // recording (see liveCaption.ts) — nothing shows on screen or gets baked
+  // into the video. This is where that pays off: the editor opens with a
+  // rough transcript already sitting there instead of the user having to
+  // wait through a fresh transcription pass.
+  const liveTranscript = await finalizeLiveTranscript(outPath).catch((err) => {
+    console.error('[beam] finalizing live transcript failed', err)
+    return null
+  })
+
   stopInputMonitor()
   closeRecordingWindows()
+  resetLiveCaptions()
   await cleanupTempFiles()
   resetRecorderState()
   // micBufferPath is deliberately left on disk here (cleanupTempFiles only
   // touches screen/webcam) — the editor needs it for on-demand
   // mic-only transcription, and transcribeFile deletes it once used.
-  createEditorWindow(outPath, micBufferPath)
+  createEditorWindow(outPath, micBufferPath, liveTranscript?.srtPath ?? null)
 }
 
 async function cleanupTempFiles(): Promise<void> {

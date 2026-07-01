@@ -7,6 +7,7 @@ import {
   getScreenStream,
   stopAllTracks
 } from '../lib/recorder'
+import { startLiveCaptionCapture } from '../lib/liveCaption'
 import { getVideoBitsPerSecond } from '../lib/quality'
 import { IconPause, IconPlay, IconSquare } from '../components/Icons'
 
@@ -27,6 +28,7 @@ export default function ControlBar(): React.JSX.Element {
   const tickRef = useRef<number | null>(null)
   const micRecorderRef = useRef<MediaRecorder | null>(null)
   const micChunksRef = useRef<Blob[]>([])
+  const stopLiveCaptionsRef = useRef<(() => void) | null>(null)
 
   function handleStop(): void {
     setStatus((prev) => {
@@ -34,6 +36,8 @@ export default function ControlBar(): React.JSX.Element {
       window.beam.sendControlEvent('stop')
       recorderRef.current?.stop()
       micRecorderRef.current?.stop()
+      stopLiveCaptionsRef.current?.()
+      stopLiveCaptionsRef.current = null
       return 'stopping'
     })
   }
@@ -117,6 +121,16 @@ export default function ControlBar(): React.JSX.Element {
         }
       } else {
         window.beam.notifyMicUnavailable()
+      }
+
+      // Same best-effort treatment as everything else optional here — live
+      // captions failing to start must never affect the actual recording.
+      if (micStream && options.liveCaptions) {
+        try {
+          stopLiveCaptionsRef.current = startLiveCaptionCapture(micStream)
+        } catch (err) {
+          console.error('[beam] live captions failed to start', err)
+        }
       }
 
       recorder.start(1000)

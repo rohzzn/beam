@@ -33,6 +33,7 @@ export interface RecordingOptions {
   region?: RegionRect
   showClicks?: boolean
   showKeystrokes?: boolean
+  liveCaptions?: boolean
 }
 
 export interface SourceInfo {
@@ -52,6 +53,7 @@ export interface RecordingPrefs {
   quality: Quality
   showClicks: boolean
   showKeystrokes: boolean
+  liveCaptions: boolean
 }
 
 export interface BeamSettings {
@@ -99,6 +101,8 @@ const api = {
     ipcRenderer.invoke('editor:burnCaptions', { filePath, srtPath, style }),
   exportGif: (filePath: string, segments: TrimSegment[]): Promise<string> =>
     ipcRenderer.invoke('editor:exportGif', { filePath, segments }),
+  cropVideo: (filePath: string, region: RegionRect): Promise<string> =>
+    ipcRenderer.invoke('editor:crop', { filePath, region }),
   reveal: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:reveal', filePath),
   copyPath: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:copyPath', filePath),
   copyFile: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:copyFile', filePath),
@@ -136,7 +140,10 @@ const api = {
     const listener = (_evt: unknown, label: string): void => cb(label)
     ipcRenderer.on('input:key', listener)
     return () => ipcRenderer.removeListener('input:key', listener)
-  }
+  },
+
+  sendLiveCaptionChunk: (samples: ArrayBufferLike, start: number, duration: number): void =>
+    ipcRenderer.send('recording:live-caption-chunk', { samples, start, duration })
 }
 
 export type BeamAPI = typeof api

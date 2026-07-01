@@ -304,7 +304,11 @@ export function closeRecordingWindows(): void {
   inputOverlayWindow?.close()
 }
 
-export function createEditorWindow(filePath: string, micPath?: string | null): BrowserWindow {
+export function createEditorWindow(
+  filePath: string,
+  micPath?: string | null,
+  liveSrtPath?: string | null
+): BrowserWindow {
   editorWindow = new BrowserWindow({
     width: 1000,
     height: 700,
@@ -322,6 +326,7 @@ export function createEditorWindow(filePath: string, micPath?: string | null): B
     editorWindow = null
   })
   const micParam = micPath ? `&mic=${encodeURIComponent(micPath)}` : ''
-  load(editorWindow, `/editor?file=${encodeURIComponent(filePath)}${micParam}`)
+  const liveSrtParam = liveSrtPath ? `&liveSrt=${encodeURIComponent(liveSrtPath)}` : ''
+  load(editorWindow, `/editor?file=${encodeURIComponent(filePath)}${micParam}${liveSrtParam}`)
   return editorWindow
 }

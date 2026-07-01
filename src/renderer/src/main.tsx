@@ -22,10 +22,12 @@ function resolveRoute(): React.JSX.Element {
       return <WebcamBubble />
     case '/editor': {
       const mic = params.get('mic')
+      const liveSrt = params.get('liveSrt')
       return (
         <Editor
           filePath={decodeURIComponent(params.get('file') ?? '')}
           micPath={mic ? decodeURIComponent(mic) : null}
+          liveSrtPath={liveSrt ? decodeURIComponent(liveSrt) : null}
         />
       )
     }

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { toPlaybackUrl } from '../lib/fileUrl'
-import type { CaptionStyle, TrimSegment } from '../../../preload/index'
+import type { CaptionStyle, RegionRect, TrimSegment } from '../../../preload/index'
 import {
   IconCheck,
   IconCopy,
+  IconCrop,
   IconFolder,
   IconGif,
   IconPause,
@@ -14,6 +15,19 @@ import {
 import Logo from '../components/Logo'
 
 const MIN_SEG_LEN = 0.2
+const MIN_CROP_FRAC = 0.1
+
+function clamp01(v: number): number {
+  return Math.min(1, Math.max(0, v))
+}
+
+type CropHandle = 'move' | 'nw' | 'ne' | 'sw' | 'se'
+interface CropRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds)) return '0:00'
@@ -24,28 +38,51 @@ function formatTime(seconds: number): string {
 
 export default function Editor({
   filePath,
-  micPath
+  micPath,
+  liveSrtPath
 }: {
   filePath: string
   micPath?: string | null
+  liveSrtPath?: string | null
 }): React.JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const videoWrapRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef<{ index: number; edge: 'start' | 'end' } | null>(null)
   const dragRectRef = useRef<DOMRect | null>(null)
   const pendingXRef = useRef<number | null>(null)
   const rafRef = useRef<number | null>(null)
+  const cropDragRef = useRef<{
+    handle: CropHandle
+    startClientX: number
+    startClientY: number
+    startRect: CropRect
+    wrapRect: DOMRect
+  } | null>(null)
+  const cropPendingRef = useRef<{ x: number; y: number } | null>(null)
+  const cropRafRef = useRef<number | null>(null)
 
   const [duration, setDuration] = useState(0)
   const [current, setCurrent] = useState(0)
   const [segments, setSegments] = useState<TrimSegment[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
-  const [busy, setBusy] = useState<'trim' | 'gif' | 'transcribe' | 'captions' | null>(null)
-  const [statusMsg, setStatusMsg] = useState('')
+  const [busy, setBusy] = useState<'trim' | 'gif' | 'transcribe' | 'captions' | 'crop' | null>(null)
+  const [cropMode, setCropMode] = useState(false)
+  const [cropRect, setCropRect] = useState<CropRect>({ x: 0.1, y: 0.1, w: 0.8, h: 0.8 })
+  // Live captions transcribe quietly in the background during recording
+  // (see liveCaption.ts) rather than showing anything live on screen —
+  // this is where that pays off: the caption panel and this status line are
+  // both ready from the very first render instead of the user waiting
+  // through a fresh Transcribe pass.
+  const [statusMsg, setStatusMsg] = useState(() =>
+    liveSrtPath
+      ? 'Live transcript ready — customize captions below, or Transcribe again for a cleaner pass.'
+      : ''
+  )
   const [copied, setCopied] = useState(false)
 
-  const [srtPath, setSrtPath] = useState<string | null>(null)
+  const [srtPath, setSrtPath] = useState<string | null>(liveSrtPath ?? null)
   const [captionFontSize, setCaptionFontSize] = useState(24)
   const [captionColor, setCaptionColor] = useState('#ffffff')
   const [captionPosition, setCaptionPosition] = useState<CaptionStyle['position']>('bottom')
@@ -106,6 +143,107 @@ export default function Editor({
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
     }
   }, [duration])
+
+  useEffect(() => {
+    function applyCropDrag(clientX: number, clientY: number): void {
+      const drag = cropDragRef.current
+      if (!drag) return
+      const dx = (clientX - drag.startClientX) / drag.wrapRect.width
+      const dy = (clientY - drag.startClientY) / drag.wrapRect.height
+      const { startRect, handle } = drag
+      const next = { ...startRect }
+
+      if (handle === 'move') {
+        next.x = clamp01(Math.min(startRect.x + dx, 1 - startRect.w))
+        next.y = clamp01(Math.min(startRect.y + dy, 1 - startRect.h))
+      } else {
+        if (handle === 'nw' || handle === 'sw') {
+          const newX = Math.min(
+            clamp01(startRect.x + dx),
+            startRect.x + startRect.w - MIN_CROP_FRAC
+          )
+          next.w = startRect.x + startRect.w - newX
+          next.x = newX
+        } else {
+          next.w = Math.min(Math.max(startRect.w + dx, MIN_CROP_FRAC), 1 - startRect.x)
+        }
+        if (handle === 'nw' || handle === 'ne') {
+          const newY = Math.min(
+            clamp01(startRect.y + dy),
+            startRect.y + startRect.h - MIN_CROP_FRAC
+          )
+          next.h = startRect.y + startRect.h - newY
+          next.y = newY
+        } else {
+          next.h = Math.min(Math.max(startRect.h + dy, MIN_CROP_FRAC), 1 - startRect.y)
+        }
+      }
+      setCropRect(next)
+    }
+    function onMove(e: PointerEvent): void {
+      if (!cropDragRef.current) return
+      cropPendingRef.current = { x: e.clientX, y: e.clientY }
+      if (cropRafRef.current !== null) return
+      cropRafRef.current = requestAnimationFrame(() => {
+        cropRafRef.current = null
+        if (cropPendingRef.current)
+          applyCropDrag(cropPendingRef.current.x, cropPendingRef.current.y)
+      })
+    }
+    function onUp(): void {
+      cropDragRef.current = null
+      if (cropRafRef.current !== null) {
+        cancelAnimationFrame(cropRafRef.current)
+        cropRafRef.current = null
+      }
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      if (cropRafRef.current !== null) cancelAnimationFrame(cropRafRef.current)
+    }
+  }, [])
+
+  function beginCropDrag(handle: CropHandle, e: React.PointerEvent): void {
+    e.stopPropagation()
+    const wrapRect = videoWrapRef.current?.getBoundingClientRect()
+    if (!wrapRect) return
+    cropDragRef.current = {
+      handle,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startRect: cropRect,
+      wrapRect
+    }
+  }
+
+  function toggleCropMode(): void {
+    if (!cropMode) videoRef.current?.pause()
+    setPlaying(false)
+    setCropMode((v) => !v)
+  }
+
+  async function handleApplyCrop(): Promise<void> {
+    setBusy('crop')
+    setStatusMsg('Cropping…')
+    try {
+      const region: RegionRect = {
+        xFrac: cropRect.x,
+        yFrac: cropRect.y,
+        wFrac: cropRect.w,
+        hFrac: cropRect.h
+      }
+      const out = await window.beam.cropVideo(filePath, region)
+      setStatusMsg(`Saved cropped copy: ${out}`)
+      setCropMode(false)
+    } catch (err) {
+      setStatusMsg(`Crop failed: ${(err as Error).message}`)
+    } finally {
+      setBusy(null)
+    }
+  }
 
   function activeSegmentIndex(t: number): number {
     return segments.findIndex((s) => t >= s.start && t < s.end)
@@ -302,18 +440,82 @@ export default function Editor({
       </div>
 
       <div className="editor__stage">
-        <video
-          ref={videoRef}
-          src={toPlaybackUrl(filePath)}
-          onLoadedMetadata={handleLoadedMetadata}
-          onTimeUpdate={handleTimeUpdate}
-          onClick={togglePlay}
-        />
+        <div className="editor__video-wrap" ref={videoWrapRef}>
+          <video
+            ref={videoRef}
+            src={toPlaybackUrl(filePath)}
+            onLoadedMetadata={handleLoadedMetadata}
+            onTimeUpdate={handleTimeUpdate}
+            onClick={cropMode ? undefined : togglePlay}
+          />
+          {cropMode && (
+            <div className="crop-overlay">
+              <div
+                className="crop-overlay__mask"
+                style={{ left: 0, top: 0, right: 0, height: `${cropRect.y * 100}%` }}
+              />
+              <div
+                className="crop-overlay__mask"
+                style={{
+                  left: 0,
+                  top: `${(cropRect.y + cropRect.h) * 100}%`,
+                  right: 0,
+                  bottom: 0
+                }}
+              />
+              <div
+                className="crop-overlay__mask"
+                style={{
+                  left: 0,
+                  top: `${cropRect.y * 100}%`,
+                  width: `${cropRect.x * 100}%`,
+                  height: `${cropRect.h * 100}%`
+                }}
+              />
+              <div
+                className="crop-overlay__mask"
+                style={{
+                  left: `${(cropRect.x + cropRect.w) * 100}%`,
+                  top: `${cropRect.y * 100}%`,
+                  right: 0,
+                  height: `${cropRect.h * 100}%`
+                }}
+              />
+              <div
+                className="crop-overlay__box"
+                onPointerDown={(e) => beginCropDrag('move', e)}
+                style={{
+                  left: `${cropRect.x * 100}%`,
+                  top: `${cropRect.y * 100}%`,
+                  width: `${cropRect.w * 100}%`,
+                  height: `${cropRect.h * 100}%`
+                }}
+              >
+                <div
+                  className="crop-overlay__handle nw"
+                  onPointerDown={(e) => beginCropDrag('nw', e)}
+                />
+                <div
+                  className="crop-overlay__handle ne"
+                  onPointerDown={(e) => beginCropDrag('ne', e)}
+                />
+                <div
+                  className="crop-overlay__handle sw"
+                  onPointerDown={(e) => beginCropDrag('sw', e)}
+                />
+                <div
+                  className="crop-overlay__handle se"
+                  onPointerDown={(e) => beginCropDrag('se', e)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="editor__bottom">
         <div className="editor__transport">
-          <button className="btn btn-secondary btn-icon" onClick={togglePlay}>
+          <button className="btn btn-secondary btn-icon" onClick={togglePlay} disabled={cropMode}>
             {playing ? <IconPause width={15} height={15} /> : <IconPlay width={15} height={15} />}
           </button>
           <span className="editor__time">
@@ -322,22 +524,54 @@ export default function Editor({
           <button
             className="btn btn-secondary btn-icon"
             onClick={handleSplit}
-            disabled={!canSplit}
+            disabled={!canSplit || cropMode}
             title="Split at playhead (S)"
           >
             <IconScissors width={14} height={14} />
           </button>
           <div style={{ flex: 1 }} />
-          <button className="btn btn-secondary" disabled={busy !== null} onClick={handleTranscribe}>
-            {busy === 'transcribe' ? <span className="spinner" /> : null} Transcribe
-          </button>
-          <button className="btn btn-secondary" disabled={busy !== null} onClick={handleGif}>
-            {busy === 'gif' ? <span className="spinner" /> : <IconGif width={15} height={15} />}{' '}
-            Export GIF
-          </button>
-          <button className="btn btn-primary" disabled={busy !== null} onClick={handleTrim}>
-            {busy === 'trim' ? <span className="spinner" /> : null} Save trimmed copy
-          </button>
+          {cropMode ? (
+            <>
+              <button
+                className="btn btn-secondary"
+                disabled={busy !== null}
+                onClick={toggleCropMode}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={busy !== null}
+                onClick={handleApplyCrop}
+              >
+                {busy === 'crop' ? <span className="spinner" /> : null} Save cropped copy
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                className="btn btn-secondary"
+                disabled={busy !== null}
+                onClick={toggleCropMode}
+              >
+                <IconCrop width={15} height={15} /> Crop
+              </button>
+              <button
+                className="btn btn-secondary"
+                disabled={busy !== null}
+                onClick={handleTranscribe}
+              >
+                {busy === 'transcribe' ? <span className="spinner" /> : null} Transcribe
+              </button>
+              <button className="btn btn-secondary" disabled={busy !== null} onClick={handleGif}>
+                {busy === 'gif' ? <span className="spinner" /> : <IconGif width={15} height={15} />}{' '}
+                Export GIF
+              </button>
+              <button className="btn btn-primary" disabled={busy !== null} onClick={handleTrim}>
+                {busy === 'trim' ? <span className="spinner" /> : null} Save trimmed copy
+              </button>
+            </>
+          )}
         </div>
 
         {srtPath && (

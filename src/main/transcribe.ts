@@ -5,12 +5,15 @@ import { existsSync } from 'fs'
 import { getTempDir } from './paths'
 import { extractAudioForTranscription } from './ffmpeg'
 
+export type Transcriber = (
+  audio: Float32Array,
+  options: Record<string, unknown>
+) => Promise<{ text: string; chunks?: { text: string; timestamp: [number, number | null] }[] }>
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let pipelinePromise: Promise<any> | null = null
 
-async function getTranscriber(): Promise<
-  (audio: Float32Array, options: Record<string, unknown>) => Promise<unknown>
-> {
+export async function getTranscriber(): Promise<Transcriber> {
   if (!pipelinePromise) {
     pipelinePromise = (async () => {
       const { pipeline, env } = await import('@huggingface/transformers')
@@ -35,7 +38,7 @@ async function wavToFloat32(path: string): Promise<Float32Array> {
   return floats
 }
 
-function formatSrtTime(seconds: number): string {
+export function formatSrtTime(seconds: number): string {
   const ms = Math.round(seconds * 1000)
   const h = Math.floor(ms / 3600000)
   const m = Math.floor((ms % 3600000) / 60000)
@@ -45,12 +48,12 @@ function formatSrtTime(seconds: number): string {
   return `${pad(h)}:${pad(m)}:${pad(s)},${pad(msRem, 3)}`
 }
 
-interface TranscriptionChunk {
+export interface TranscriptionChunk {
   text: string
   timestamp: [number, number | null]
 }
 
-function buildSrt(chunks: TranscriptionChunk[]): string {
+export function buildSrt(chunks: TranscriptionChunk[]): string {
   return chunks
     .map((chunk, i) => {
       const [start, end] = chunk.timestamp

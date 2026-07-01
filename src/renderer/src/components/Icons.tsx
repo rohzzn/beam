@@ -208,3 +208,13 @@ export function IconZoom(props: SVGProps<SVGSVGElement>): React.JSX.Element {
     </svg>
   )
 }
+
+export function IconCaption(props: SVGProps<SVGSVGElement>): React.JSX.Element {
+  return (
+    <svg {...base(props)}>
+      <rect x="2" y="5" width="20" height="14" rx="2.5" />
+      <line x1="6" y1="15" x2="10.5" y2="15" />
+      <line x1="13.5" y1="15" x2="18" y2="15" />
+    </svg>
+  )
+}
