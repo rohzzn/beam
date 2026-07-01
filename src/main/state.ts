@@ -22,6 +22,8 @@ export interface RecordingOptions {
   webcamDeviceId?: string
   quality: Quality
   region?: RegionRect
+  showClicks?: boolean
+  showKeystrokes?: boolean
 }
 
 interface RecorderState {

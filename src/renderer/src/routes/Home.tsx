@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { BeamSettings, Quality, RegionRect, SourceInfo } from '../../../preload/index'
 import {
   IconCheck,
+  IconClick,
   IconCrop,
   IconFolder,
   IconKeyboard,
@@ -69,6 +70,9 @@ export default function Home(): React.JSX.Element {
   const [quality, setQuality] = useState<Quality>('high')
   const [countdown, setCountdown] = useState<number | null>(null)
 
+  const [showClicksOn, setShowClicksOn] = useState(false)
+  const [showKeystrokesOn, setShowKeystrokesOn] = useState(false)
+
   const [region, setRegion] = useState<RegionRect | null>(null)
   const [selectingRegion, setSelectingRegion] = useState(false)
 
@@ -122,6 +126,8 @@ export default function Home(): React.JSX.Element {
     if (prefs.webcamDeviceId) setWebcamDeviceId(prefs.webcamDeviceId)
     setSystemAudioOn(prefs.systemAudio)
     setQuality(prefs.quality)
+    setShowClicksOn(prefs.showClicks)
+    setShowKeystrokesOn(prefs.showKeystrokes)
     prefsLoaded.current = true
   }
 
@@ -144,9 +150,20 @@ export default function Home(): React.JSX.Element {
       webcamEnabled: webcamOn,
       webcamDeviceId: webcamDeviceId || undefined,
       systemAudio: systemAudioOn,
-      quality
+      quality,
+      showClicks: showClicksOn,
+      showKeystrokes: showKeystrokesOn
     })
-  }, [micOn, micDeviceId, webcamOn, webcamDeviceId, systemAudioOn, quality])
+  }, [
+    micOn,
+    micDeviceId,
+    webcamOn,
+    webcamDeviceId,
+    systemAudioOn,
+    quality,
+    showClicksOn,
+    showKeystrokesOn
+  ])
 
   useEffect(() => {
     if (!capturingHotkey) return
@@ -196,7 +213,9 @@ export default function Home(): React.JSX.Element {
       webcamEnabled: webcamOn,
       webcamDeviceId: webcamOn ? webcamDeviceId : undefined,
       quality,
-      region: tab === 'region' ? (region ?? undefined) : undefined
+      region: tab === 'region' ? (region ?? undefined) : undefined,
+      showClicks: showClicksOn,
+      showKeystrokes: showKeystrokesOn
     })
   }
 
@@ -382,6 +401,22 @@ export default function Home(): React.JSX.Element {
             System audio
           </span>
           <Switch on={systemAudioOn} onToggle={() => setSystemAudioOn((v) => !v)} />
+        </div>
+
+        <div className="option-row">
+          <span className="option-row__label">
+            <IconClick className="option-row__icon" />
+            Click ripples
+          </span>
+          <Switch on={showClicksOn} onToggle={() => setShowClicksOn((v) => !v)} />
+        </div>
+
+        <div className="option-row">
+          <span className="option-row__label">
+            <IconKeyboard className="option-row__icon" />
+            Keystroke overlay
+          </span>
+          <Switch on={showKeystrokesOn} onToggle={() => setShowKeystrokesOn((v) => !v)} />
         </div>
 
         <div className="quality-options">

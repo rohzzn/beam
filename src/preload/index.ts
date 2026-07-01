@@ -25,6 +25,8 @@ export interface RecordingOptions {
   webcamDeviceId?: string
   quality: Quality
   region?: RegionRect
+  showClicks?: boolean
+  showKeystrokes?: boolean
 }
 
 export interface SourceInfo {
@@ -42,6 +44,8 @@ export interface RecordingPrefs {
   webcamDeviceId?: string
   systemAudio: boolean
   quality: Quality
+  showClicks: boolean
+  showKeystrokes: boolean
 }
 
 export interface BeamSettings {
@@ -101,7 +105,18 @@ const api = {
   },
 
   selectRegion: (): Promise<RegionRect | null> => ipcRenderer.invoke('region:select'),
-  submitRegionResult: (rect: RegionRect | null): void => ipcRenderer.send('region:result', rect)
+  submitRegionResult: (rect: RegionRect | null): void => ipcRenderer.send('region:result', rect),
+
+  onInputClick: (cb: (pos: { x: number; y: number }) => void): (() => void) => {
+    const listener = (_evt: unknown, pos: { x: number; y: number }): void => cb(pos)
+    ipcRenderer.on('input:click', listener)
+    return () => ipcRenderer.removeListener('input:click', listener)
+  },
+  onInputKey: (cb: (label: string) => void): (() => void) => {
+    const listener = (_evt: unknown, label: string): void => cb(label)
+    ipcRenderer.on('input:key', listener)
+    return () => ipcRenderer.removeListener('input:key', listener)
+  }
 }
 
 export type BeamAPI = typeof api

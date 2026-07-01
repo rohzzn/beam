@@ -188,3 +188,12 @@ export function IconZap(props: SVGProps<SVGSVGElement>): React.JSX.Element {
     </svg>
   )
 }
+
+export function IconClick(props: SVGProps<SVGSVGElement>): React.JSX.Element {
+  return (
+    <svg {...base(props)}>
+      <path d="M6 3v2M3 6h2M4.5 4.5l1.4 1.4" />
+      <path d="M9 8 20 12l-4.5 1.8L13 18Z" />
+    </svg>
+  )
+}

@@ -11,6 +11,8 @@ export interface RecordingPrefs {
   webcamDeviceId?: string
   systemAudio: boolean
   quality: Quality
+  showClicks: boolean
+  showKeystrokes: boolean
 }
 
 export interface BeamSettings {
@@ -28,7 +30,9 @@ const DEFAULTS: BeamSettings = {
     micEnabled: true,
     webcamEnabled: false,
     systemAudio: false,
-    quality: 'high'
+    quality: 'high',
+    showClicks: false,
+    showKeystrokes: false
   }
 }
 
@@ -41,7 +45,15 @@ let cache: BeamSettings | null = null
 function readFromDisk(): BeamSettings {
   try {
     const raw = readFileSync(settingsPath(), 'utf-8')
-    return { ...DEFAULTS, ...JSON.parse(raw) }
+    const parsed = JSON.parse(raw)
+    // Shallow-merge would drop new recordingPrefs fields (e.g. showClicks)
+    // entirely when loading a settings.json saved before those fields
+    // existed, since the whole nested object gets replaced, not merged.
+    return {
+      ...DEFAULTS,
+      ...parsed,
+      recordingPrefs: { ...DEFAULTS.recordingPrefs, ...parsed.recordingPrefs }
+    }
   } catch {
     return { ...DEFAULTS }
   }

@@ -21,6 +21,7 @@ let homeWindow: BrowserWindow | null = null
 let controlWindow: BrowserWindow | null = null
 let webcamWindow: BrowserWindow | null = null
 let editorWindow: BrowserWindow | null = null
+let inputOverlayWindow: BrowserWindow | null = null
 
 export function getHomeWindow(): BrowserWindow | null {
   return homeWindow
@@ -33,6 +34,9 @@ export function getWebcamWindow(): BrowserWindow | null {
 }
 export function getEditorWindow(): BrowserWindow | null {
   return editorWindow
+}
+export function getInputOverlay(): BrowserWindow | null {
+  return inputOverlayWindow
 }
 
 export function createHomeWindow(): BrowserWindow {
@@ -93,6 +97,40 @@ export function createControlBar(): BrowserWindow {
   })
   load(controlWindow, '/control')
   return controlWindow
+}
+
+/** Fullscreen overlay for click ripples / keystroke badges. Unlike the
+ *  control bar and webcam bubble, this one deliberately has NO content
+ *  protection — the whole point is for it to show up in the recording.
+ *  Click-through (ignoreMouseEvents) so it never intercepts real input. */
+export function createInputOverlay(): BrowserWindow {
+  const display = screen.getPrimaryDisplay()
+
+  inputOverlayWindow = new BrowserWindow({
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    webPreferences: { preload, sandbox: false }
+  })
+  inputOverlayWindow.setAlwaysOnTop(true, 'screen-saver')
+  inputOverlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  inputOverlayWindow.setIgnoreMouseEvents(true, { forward: true })
+  inputOverlayWindow.on('ready-to-show', () => inputOverlayWindow?.show())
+  inputOverlayWindow.on('closed', () => {
+    inputOverlayWindow = null
+  })
+  load(inputOverlayWindow, '/input-overlay')
+  return inputOverlayWindow
 }
 
 const WEBCAM_MIN_SIZE = 120
@@ -254,6 +292,7 @@ export function openRegionSelectWindow(): Promise<RegionRect | null> {
 export function closeRecordingWindows(): void {
   controlWindow?.close()
   webcamWindow?.close()
+  inputOverlayWindow?.close()
 }
 
 export function createEditorWindow(filePath: string): BrowserWindow {

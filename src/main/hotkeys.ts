@@ -20,7 +20,9 @@ async function startWithDefaults(): Promise<void> {
     systemAudio: prefs.systemAudio,
     webcamEnabled: prefs.webcamEnabled,
     webcamDeviceId: prefs.webcamDeviceId,
-    quality: prefs.quality
+    quality: prefs.quality,
+    showClicks: prefs.showClicks,
+    showKeystrokes: prefs.showKeystrokes
   })
 }
 

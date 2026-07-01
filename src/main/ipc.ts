@@ -24,6 +24,7 @@ import { recorderState, resetRecorderState, RecordingOptions, RegionRect } from 
 import { transcribeFile } from './transcribe'
 import { getQualityPreset } from './quality'
 import { beginRecording } from './recording'
+import { stopInputMonitor } from './inputMonitor'
 import { loadSettings, saveSettings, RecordingPrefs } from './settings'
 import { applyHotkeySetting } from './hotkeys'
 
@@ -72,6 +73,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('recording:cancel', async () => {
+    stopInputMonitor()
     closeRecordingWindows()
     await cleanupTempFiles()
     resetRecorderState()
@@ -209,6 +211,7 @@ async function maybeFinalize(): Promise<void> {
     )
   }
 
+  stopInputMonitor()
   closeRecordingWindows()
   await cleanupTempFiles()
   resetRecorderState()
@@ -225,5 +228,6 @@ async function cleanupTempFiles(): Promise<void> {
 }
 
 app.on('before-quit', () => {
+  stopInputMonitor()
   cleanupTempFiles().catch(() => {})
 })
