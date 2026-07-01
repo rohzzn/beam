@@ -7,10 +7,12 @@ import {
   Menu,
   nativeImage,
   session,
-  protocol,
-  net
+  protocol
 } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
+import { createReadStream, statSync } from 'fs'
+import { Readable } from 'stream'
+import type { ReadableStream as NodeWebReadableStream } from 'stream/web'
 import icon from '../../resources/icon.png?asset'
 import { createHomeWindow } from './windows'
 import { registerIpcHandlers } from './ipc'
@@ -81,7 +83,49 @@ app.whenReady().then(() => {
 
   protocol.handle('beam-media', (request) => {
     const filePath = decodeURIComponent(request.url.replace('beam-media://local/', ''))
-    return net.fetch(`file:///${filePath.replace(/\\/g, '/')}`)
+
+    let fileSize: number
+    try {
+      fileSize = statSync(filePath).size
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+
+    // Seeking in <video> issues a ranged request (Range: bytes=...). Electron's
+    // net.fetch doesn't implement HTTP range semantics for file:// URLs — it
+    // always returns the full file with status 200 regardless of the Range
+    // header, which browsers treat as "this resource isn't seekable", so
+    // currentTime snaps back to 0 on every seek. Serving the requested byte
+    // range ourselves (status 206 + Content-Range) is what makes seeking work.
+    const rangeHeader = request.headers.get('range')
+    const match = rangeHeader ? /bytes=(\d*)-(\d*)/.exec(rangeHeader) : null
+    const start = match?.[1] ? parseInt(match[1], 10) : 0
+    const end = match?.[2] ? parseInt(match[2], 10) : fileSize - 1
+
+    const stream = Readable.toWeb(
+      createReadStream(filePath, { start, end })
+    ) as NodeWebReadableStream<Uint8Array>
+
+    if (!rangeHeader) {
+      return new Response(stream as unknown as ReadableStream, {
+        status: 200,
+        headers: {
+          'content-type': 'video/mp4',
+          'content-length': String(fileSize),
+          'accept-ranges': 'bytes'
+        }
+      })
+    }
+
+    return new Response(stream as unknown as ReadableStream, {
+      status: 206,
+      headers: {
+        'content-type': 'video/mp4',
+        'content-length': String(end - start + 1),
+        'content-range': `bytes ${start}-${end}/${fileSize}`,
+        'accept-ranges': 'bytes'
+      }
+    })
   })
 
   setupDisplayMediaHandler()
