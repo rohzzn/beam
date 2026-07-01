@@ -82,7 +82,14 @@ export function registerIpcHandlers(): void {
     await maybeFinalize()
   })
 
-  ipcMain.handle('recording:cancel', async () => {
+  ipcMain.on('recording:mic-unavailable', () => {
+    recorderState.micUnavailable = true
+    maybeFinalize().catch((err) =>
+      console.error('[beam] finalize after mic-unavailable failed', err)
+    )
+  })
+
+  ipcMain.handle('recording:cancel', async (_evt, reason?: string) => {
     stopInputMonitor()
     closeRecordingWindows()
     const { micBufferPath } = recorderState
@@ -91,7 +98,12 @@ export function registerIpcHandlers(): void {
     }
     await cleanupTempFiles()
     resetRecorderState()
-    getHomeWindow()?.show()
+    const home = getHomeWindow()
+    home?.show()
+    // Without this, a failed start silently reverts to the picker with zero
+    // explanation — the exact "did it even click?" confusion that made the
+    // original mic-crash bug so hard to pin down from a bug report alone.
+    if (reason) home?.webContents.send('recording:failed', reason)
   })
 
   ipcMain.handle(
@@ -203,10 +215,13 @@ async function copyFileToClipboard(filePath: string): Promise<void> {
 }
 
 async function maybeFinalize(): Promise<void> {
-  const { options, screenBufferPath, webcamBufferPath, micBufferPath } = recorderState
+  const { options, screenBufferPath, webcamBufferPath, micBufferPath, micUnavailable } =
+    recorderState
   if (!options || !screenBufferPath) return
   if (options.webcamEnabled && !webcamBufferPath) return
-  if (options.micEnabled && !micBufferPath) return
+  // Mic-only capture is an optional transcription nicety, never a hard
+  // requirement — wait for it only while it's still plausibly coming.
+  if (options.micEnabled && !micBufferPath && !micUnavailable) return
 
   const outDir = getOutputDir()
   const outPath = join(outDir, timestampedFilename('mp4'))

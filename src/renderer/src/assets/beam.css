@@ -451,6 +451,16 @@ button {
   -webkit-app-region: no-drag;
   animation: fadeInUp 0.4s var(--ease) 0.16s backwards;
 }
+.home__error {
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  background: var(--danger-light);
+  border: 1px solid rgba(229, 72, 77, 0.35);
+  border-radius: var(--radius-sm);
+  color: #ff9a9d;
+  font-size: 12.5px;
+  animation: fadeInUp 0.25s var(--ease);
+}
 .home__start {
   width: 100%;
   justify-content: center;

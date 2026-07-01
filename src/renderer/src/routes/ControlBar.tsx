@@ -45,11 +45,22 @@ export default function ControlBar(): React.JSX.Element {
 
       const audioSources: MediaStream[] = []
       if (screenStream.getAudioTracks().length > 0) audioSources.push(screenStream)
+      // Mic access is best-effort: no microphone, a denied permission, or a
+      // saved device that no longer exists must never take down the whole
+      // recording. Losing mic audio is a degraded-but-usable outcome; losing
+      // the entire recording over it is not.
       let micStream: MediaStream | null = null
       if (options.micEnabled) {
-        micStream = await getMicStream(options.micDeviceId)
-        streamsRef.current.push(micStream)
-        audioSources.push(micStream)
+        try {
+          micStream = await getMicStream(options.micDeviceId)
+          streamsRef.current.push(micStream)
+          audioSources.push(micStream)
+        } catch (err) {
+          console.error('[beam] mic unavailable, recording without it', err)
+          window.beam.notifyMicUnavailable()
+        }
+      } else {
+        window.beam.notifyMicUnavailable()
       }
 
       const videoTrack = screenStream.getVideoTracks()[0] ?? null
@@ -75,23 +86,37 @@ export default function ControlBar(): React.JSX.Element {
       // afterwards. Transcription needs just the user's voice — recording
       // the mic a second time, independently, is the only way to keep an
       // isolated copy for that without touching the final video's audio.
+      // This is purely a transcription nicety, so any failure here must
+      // degrade gracefully rather than take down the real recording —
+      // main process is told either way so it never waits on a buffer
+      // that was never coming.
       if (micStream) {
-        const micRecorder = new MediaRecorder(new MediaStream(micStream.getAudioTracks()), {
-          mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-            ? 'audio/webm;codecs=opus'
-            : 'audio/webm'
-        })
-        micChunksRef.current = []
-        micRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) micChunksRef.current.push(e.data)
+        try {
+          const micRecorder = new MediaRecorder(new MediaStream(micStream.getAudioTracks()), {
+            mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+              ? 'audio/webm;codecs=opus'
+              : 'audio/webm'
+          })
+          micChunksRef.current = []
+          micRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) micChunksRef.current.push(e.data)
+          }
+          micRecorder.onstop = async () => {
+            const blob = new Blob(micChunksRef.current, { type: micRecorder.mimeType })
+            const buffer = await blob.arrayBuffer()
+            await window.beam.submitMicBuffer(buffer)
+          }
+          micRecorderRef.current = micRecorder
+          micRecorder.start(1000)
+        } catch (err) {
+          console.error(
+            '[beam] mic-only capture failed to start, transcription will fall back',
+            err
+          )
+          window.beam.notifyMicUnavailable()
         }
-        micRecorder.onstop = async () => {
-          const blob = new Blob(micChunksRef.current, { type: micRecorder.mimeType })
-          const buffer = await blob.arrayBuffer()
-          await window.beam.submitMicBuffer(buffer)
-        }
-        micRecorderRef.current = micRecorder
-        micRecorder.start(1000)
+      } else {
+        window.beam.notifyMicUnavailable()
       }
 
       recorder.start(1000)
@@ -101,7 +126,7 @@ export default function ControlBar(): React.JSX.Element {
       videoTrack?.addEventListener('ended', () => handleStop())
     } catch (err) {
       console.error('Failed to start recording', err)
-      await window.beam.cancelRecording()
+      await window.beam.cancelRecording((err as Error).message || 'Could not start recording')
     }
   }
 

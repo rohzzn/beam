@@ -36,13 +36,22 @@ interface RecorderState {
    *  it's handed off to the editor window for on-demand transcription and
    *  cleaned up after that runs (or swept on next app launch). */
   micBufferPath: string | null
+  /** Set when the renderer couldn't start (or lost) the mic-only capture —
+   *  e.g. no microphone, permission denied, or the saved device disappeared.
+   *  Without this, finalize would wait forever for a mic buffer that's
+   *  never coming, since a plain `!micBufferPath` check can't tell "still
+   *  recording" apart from "never going to happen." Mic-only capture is
+   *  strictly a transcription nicety — it must never block the actual
+   *  screen recording from finishing. */
+  micUnavailable: boolean
 }
 
 export const recorderState: RecorderState = {
   options: null,
   screenBufferPath: null,
   webcamBufferPath: null,
-  micBufferPath: null
+  micBufferPath: null,
+  micUnavailable: false
 }
 
 export function resetRecorderState(): void {
@@ -50,4 +59,5 @@ export function resetRecorderState(): void {
   recorderState.screenBufferPath = null
   recorderState.webcamBufferPath = null
   recorderState.micBufferPath = null
+  recorderState.micUnavailable = false
 }

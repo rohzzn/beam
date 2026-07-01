@@ -5,17 +5,39 @@ export async function getScreenStream(systemAudio: boolean): Promise<MediaStream
   } as MediaStreamConstraints)
 }
 
+/** A saved deviceId comes from settings.json, which persists across app
+ *  restarts, OS driver updates, and even machines (same Windows profile,
+ *  different hardware). If that exact device no longer exists, `exact`
+ *  constraints make getUserMedia throw OverconstrainedError instead of
+ *  falling back — which, uncaught, was killing the entire recording start
+ *  the instant the mic/webcam picker returned a stale id. Falling back to
+ *  the default device keeps recording working instead of hard-failing. */
 export async function getMicStream(deviceId?: string): Promise<MediaStream> {
-  return navigator.mediaDevices.getUserMedia({
-    audio: deviceId ? { deviceId: { exact: deviceId } } : true
-  })
+  if (deviceId) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: deviceId } }
+      })
+    } catch (err) {
+      console.error('[beam] saved mic device unavailable, falling back to default', err)
+    }
+  }
+  return navigator.mediaDevices.getUserMedia({ audio: true })
 }
 
 export async function getWebcamStream(deviceId?: string): Promise<MediaStream> {
+  if (deviceId) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 1280 } },
+        audio: false
+      })
+    } catch (err) {
+      console.error('[beam] saved webcam device unavailable, falling back to default', err)
+    }
+  }
   return navigator.mediaDevices.getUserMedia({
-    video: deviceId
-      ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 1280 } }
-      : { width: { ideal: 1280 }, height: { ideal: 1280 } },
+    video: { width: { ideal: 1280 }, height: { ideal: 1280 } },
     audio: false
   })
 }

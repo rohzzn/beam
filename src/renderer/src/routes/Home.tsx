@@ -79,6 +79,7 @@ export default function Home(): React.JSX.Element {
   const [settings, setSettings] = useState<BeamSettings | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [capturingHotkey, setCapturingHotkey] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const prefsLoaded = useRef(false)
 
   async function refreshSources(): Promise<void> {
@@ -178,6 +179,15 @@ export default function Home(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [capturingHotkey])
 
+  // Fires when a recording fails to actually start (e.g. the source picker
+  // was closed, screen-share permission was denied) — without this, that
+  // failure was an entirely silent revert back to this picker, which is
+  // exactly what made an earlier crash-on-start bug so hard to diagnose
+  // from a bug report alone.
+  useEffect(() => {
+    return window.beam.onRecordingFailed((reason) => setErrorMsg(reason))
+  }, [])
+
   const filtered = sources.filter((s) => s.type === tab)
 
   async function handleSelectRegion(): Promise<void> {
@@ -198,6 +208,7 @@ export default function Home(): React.JSX.Element {
     if (!source) return
     if (tab === 'region' && !region) return
 
+    setErrorMsg(null)
     for (const n of [3, 2, 1]) {
       setCountdown(n)
       await new Promise((r) => setTimeout(r, 700))
@@ -439,6 +450,7 @@ export default function Home(): React.JSX.Element {
       </div>
 
       <div className="home__footer">
+        {errorMsg && <div className="home__error">{errorMsg}</div>}
         <button
           className="btn btn-primary home__start"
           onClick={handleStart}
