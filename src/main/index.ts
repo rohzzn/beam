@@ -18,6 +18,7 @@ import { createHomeWindow } from './windows'
 import { registerIpcHandlers } from './ipc'
 import { recorderState } from './state'
 import { registerHotkeys, unregisterHotkeys } from './hotkeys'
+import { initAutoUpdater, checkForUpdatesManually } from './updater'
 
 // Must run before app is ready. The renderer is served from http://localhost
 // in dev (and from an `app://`-equivalent file origin in prod), so a plain
@@ -42,6 +43,11 @@ function createTray(): void {
     {
       label: 'Open Beam',
       click: () => createHomeWindow()
+    },
+    { type: 'separator' },
+    {
+      label: 'Check for Updates…',
+      click: () => checkForUpdatesManually()
     },
     { type: 'separator' },
     {
@@ -131,6 +137,7 @@ app.whenReady().then(() => {
   setupDisplayMediaHandler()
   registerIpcHandlers()
   registerHotkeys()
+  initAutoUpdater()
   console.log('[beam] ipc registered, creating tray...')
   try {
     createTray()
