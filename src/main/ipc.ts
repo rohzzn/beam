@@ -9,11 +9,18 @@ import {
   getHomeWindow,
   getWebcamWindow,
   resizeWebcamBubble,
-  getWebcamPlacement
+  getWebcamPlacement,
+  openRegionSelectWindow
 } from './windows'
 import { getOutputDir, getTempDir, timestampedFilename } from './paths'
-import { transcodeScreenOnly, overlayWebcamBubble, trimVideo, exportGif } from './ffmpeg'
-import { recorderState, resetRecorderState, RecordingOptions } from './state'
+import {
+  transcodeScreenOnly,
+  overlayWebcamBubble,
+  trimSegments,
+  exportGifSegments,
+  TrimSegment
+} from './ffmpeg'
+import { recorderState, resetRecorderState, RecordingOptions, RegionRect } from './state'
 import { transcribeFile } from './transcribe'
 import { getQualityPreset } from './quality'
 import { beginRecording } from './recording'
@@ -73,20 +80,20 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     'editor:trim',
-    async (_evt, payload: { filePath: string; start: number; end: number }) => {
+    async (_evt, payload: { filePath: string; segments: TrimSegment[] }) => {
       const dir = getOutputDir()
       const outPath = join(dir, timestampedFilename('mp4'))
-      await trimVideo(payload.filePath, outPath, payload.start, payload.end)
+      await trimSegments(payload.filePath, outPath, payload.segments)
       return outPath
     }
   )
 
   ipcMain.handle(
     'editor:exportGif',
-    async (_evt, payload: { filePath: string; start: number; end: number }) => {
+    async (_evt, payload: { filePath: string; segments: TrimSegment[] }) => {
       const dir = getOutputDir()
       const outPath = join(dir, timestampedFilename('gif'))
-      await exportGif(payload.filePath, outPath, payload.start, payload.end)
+      await exportGifSegments(payload.filePath, outPath, payload.segments)
       return outPath
     }
   )
@@ -144,6 +151,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('settings:resetOutputDir', () => {
     return saveSettings({ outputDir: null }).outputDir
   })
+
+  ipcMain.handle('region:select', async (): Promise<RegionRect | null> => {
+    return openRegionSelectWindow()
+  })
 }
 
 /** Electron's clipboard API has no documented cross-platform way to put a
@@ -176,16 +187,24 @@ async function maybeFinalize(): Promise<void> {
   // Must read this before closeRecordingWindows() below — once the bubble
   // window closes, its bounds are gone.
   const placement = options.webcamEnabled ? getWebcamPlacement() : null
+  const region = options.region ?? null
 
   try {
     if (options.webcamEnabled && webcamBufferPath) {
-      await overlayWebcamBubble(screenBufferPath, webcamBufferPath, outPath, quality, placement)
+      await overlayWebcamBubble(
+        screenBufferPath,
+        webcamBufferPath,
+        outPath,
+        quality,
+        placement,
+        region
+      )
     } else {
-      await transcodeScreenOnly(screenBufferPath, outPath, quality)
+      await transcodeScreenOnly(screenBufferPath, outPath, quality, region)
     }
   } catch (err) {
     console.error('ffmpeg processing failed', err)
-    await transcodeScreenOnly(screenBufferPath, outPath, quality).catch((e) =>
+    await transcodeScreenOnly(screenBufferPath, outPath, quality, region).catch((e) =>
       console.error('fallback transcode also failed', e)
     )
   }

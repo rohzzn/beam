@@ -13,13 +13,15 @@ Tools like Loom and Screen Studio are great, but they're subscriptions, and your
 
 ## Features
 
-- **Full-screen or window capture**, with optional system audio (WASAPI loopback)
-- **Webcam bubble** — composited automatically as a circular overlay, no extra editing
+- **Full-screen, window, or custom region capture** — drag out exactly the area you want, with optional system audio (WASAPI loopback)
+- **Webcam bubble** — composited automatically as a circular overlay, freely draggable and resizable (scroll to resize) while recording, and scaled to match your output resolution
 - **Microphone recording**, pause/resume mid-recording
+- **Global hotkey** — start, stop, from anywhere, even when Beam isn't focused (default `Alt+Shift+R`, rebindable)
 - **Quality presets** — Standard / High / Maximum, controlling both the live capture bitrate and the final x264 encode (CRF + preset), so you control the file-size/quality trade-off
-- **Built-in editor** — trim, export to MP4 or GIF
+- **Custom output folder** — recordings save to `Videos/Beam` by default, or wherever you point them
+- **Built-in editor** — multi-segment trim (split at the playhead, delete the parts you don't want, keep the rest), export to MP4 or GIF, or copy the finished file straight to your clipboard
 - **Offline AI transcription** — a local Whisper model (via [`@huggingface/transformers`](https://github.com/huggingface/transformers.js)) generates an `.srt` caption file next to your recording. No API key, no internet required; the model (~280 MB) downloads once and is cached locally.
-- **Lives in your system tray** — recordings save straight to `Videos/Beam`
+- **Lives in your system tray** — lightweight and always one click away
 
 ## Download
 

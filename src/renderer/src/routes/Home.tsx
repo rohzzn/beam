@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { BeamSettings, Quality, SourceInfo } from '../../../preload/index'
+import type { BeamSettings, Quality, RegionRect, SourceInfo } from '../../../preload/index'
 import {
   IconCheck,
+  IconCrop,
   IconFolder,
   IconKeyboard,
   IconMic,
@@ -14,7 +15,7 @@ import {
 import Logo from '../components/Logo'
 import { QUALITY_OPTIONS } from '../lib/quality'
 
-type Tab = 'screen' | 'window'
+type Tab = 'screen' | 'window' | 'region'
 
 function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }): React.JSX.Element {
   return (
@@ -67,6 +68,9 @@ export default function Home(): React.JSX.Element {
   const [systemAudioOn, setSystemAudioOn] = useState(false)
   const [quality, setQuality] = useState<Quality>('high')
   const [countdown, setCountdown] = useState<number | null>(null)
+
+  const [region, setRegion] = useState<RegionRect | null>(null)
+  const [selectingRegion, setSelectingRegion] = useState(false)
 
   const [settings, setSettings] = useState<BeamSettings | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -159,10 +163,23 @@ export default function Home(): React.JSX.Element {
 
   const filtered = sources.filter((s) => s.type === tab)
 
+  async function handleSelectRegion(): Promise<void> {
+    setSelectingRegion(true)
+    try {
+      const rect = await window.beam.selectRegion()
+      if (rect) setRegion(rect)
+    } finally {
+      setSelectingRegion(false)
+    }
+  }
+
   async function handleStart(): Promise<void> {
-    if (!selectedId) return
-    const source = sources.find((s) => s.id === selectedId)
+    const source =
+      tab === 'region'
+        ? sources.find((s) => s.type === 'screen')
+        : sources.find((s) => s.id === selectedId)
     if (!source) return
+    if (tab === 'region' && !region) return
 
     for (const n of [3, 2, 1]) {
       setCountdown(n)
@@ -178,7 +195,8 @@ export default function Home(): React.JSX.Element {
       systemAudio: systemAudioOn,
       webcamEnabled: webcamOn,
       webcamDeviceId: webcamOn ? webcamDeviceId : undefined,
-      quality
+      quality,
+      region: tab === 'region' ? (region ?? undefined) : undefined
     })
   }
 
@@ -272,28 +290,53 @@ export default function Home(): React.JSX.Element {
           >
             Window
           </button>
+          <button
+            className={`tabs__btn ${tab === 'region' ? 'active' : ''}`}
+            onClick={() => setTab('region')}
+          >
+            Region
+          </button>
         </div>
 
-        <div className="source-grid">
-          {loadingSources && <div className="source-empty">Loading sources…</div>}
-          {!loadingSources && filtered.length === 0 && (
-            <div className="source-empty">Nothing to capture here yet.</div>
-          )}
-          {filtered.map((s) => (
+        {tab === 'region' ? (
+          <div className="region-picker">
             <button
-              key={s.id}
-              className={`source-card ${selectedId === s.id ? 'selected' : ''}`}
-              onClick={() => setSelectedId(s.id)}
+              className="region-picker__draw"
+              onClick={handleSelectRegion}
+              disabled={selectingRegion}
             >
-              <img className="source-card__thumb" src={s.thumbnail} alt={s.name} />
-              <span className="source-card__label">
-                {s.type === 'screen' ? <IconMonitor className="source-card__icon" /> : null}
-                {s.appIcon ? <img className="source-card__icon" src={s.appIcon} alt="" /> : null}
-                {s.name}
-              </span>
+              <IconCrop width={20} height={20} />
+              {region ? 'Re-select region' : 'Draw a region to capture'}
             </button>
-          ))}
-        </div>
+            {region && (
+              <div className="region-picker__summary">
+                {Math.round(region.wFrac * 100)}% × {Math.round(region.hFrac * 100)}% of your
+                primary display
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="source-grid">
+            {loadingSources && <div className="source-empty">Loading sources…</div>}
+            {!loadingSources && filtered.length === 0 && (
+              <div className="source-empty">Nothing to capture here yet.</div>
+            )}
+            {filtered.map((s) => (
+              <button
+                key={s.id}
+                className={`source-card ${selectedId === s.id ? 'selected' : ''}`}
+                onClick={() => setSelectedId(s.id)}
+              >
+                <img className="source-card__thumb" src={s.thumbnail} alt={s.name} />
+                <span className="source-card__label">
+                  {s.type === 'screen' ? <IconMonitor className="source-card__icon" /> : null}
+                  {s.appIcon ? <img className="source-card__icon" src={s.appIcon} alt="" /> : null}
+                  {s.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="option-row">
           <span className="option-row__label">
@@ -364,7 +407,7 @@ export default function Home(): React.JSX.Element {
         <button
           className="btn btn-primary home__start"
           onClick={handleStart}
-          disabled={!selectedId}
+          disabled={tab === 'region' ? !region : !selectedId}
         >
           Start Recording
         </button>

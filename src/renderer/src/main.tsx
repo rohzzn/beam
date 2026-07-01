@@ -7,6 +7,7 @@ import Home from './routes/Home'
 import ControlBar from './routes/ControlBar'
 import WebcamBubble from './routes/WebcamBubble'
 import Editor from './routes/Editor'
+import RegionSelect from './routes/RegionSelect'
 
 function resolveRoute(): React.JSX.Element {
   const hash = window.location.hash.replace(/^#/, '')
@@ -20,6 +21,8 @@ function resolveRoute(): React.JSX.Element {
       return <WebcamBubble />
     case '/editor':
       return <Editor filePath={decodeURIComponent(params.get('file') ?? '')} />
+    case '/region-select':
+      return <RegionSelect />
     default:
       return <Home />
   }

@@ -25,16 +25,37 @@ interface EncodeQuality {
 
 const DEFAULT_QUALITY: EncodeQuality = { crf: 18, preset: 'fast' }
 
-/** Transcode a single screen-only webm capture to mp4. */
+export interface RegionCrop {
+  xFrac: number
+  yFrac: number
+  wFrac: number
+  hFrac: number
+}
+
+/** Builds a `crop=` filter expression from 0..1 fractions of whatever frame
+ *  it's chained after. trunc(...) guards width/height to an even number,
+ *  since libx264 + yuv420p rejects odd dimensions. */
+function cropFilter(region: RegionCrop): string {
+  const w = `trunc(iw*${region.wFrac}/2)*2`
+  const h = `trunc(ih*${region.hFrac}/2)*2`
+  const x = `trunc(iw*${region.xFrac})`
+  const y = `trunc(ih*${region.yFrac})`
+  return `crop=${w}:${h}:${x}:${y}`
+}
+
+/** Transcode a single screen-only webm capture to mp4, optionally cropped to
+ *  a user-selected region. */
 export async function transcodeScreenOnly(
   inputWebm: string,
   outputMp4: string,
-  quality: EncodeQuality = DEFAULT_QUALITY
+  quality: EncodeQuality = DEFAULT_QUALITY,
+  region: RegionCrop | null = null
 ): Promise<void> {
-  await run([
-    '-y',
-    '-i',
-    inputWebm,
+  const args = ['-y', '-i', inputWebm]
+  if (region) {
+    args.push('-vf', cropFilter(region))
+  }
+  args.push(
     '-c:v',
     'libx264',
     '-preset',
@@ -50,7 +71,8 @@ export async function transcodeScreenOnly(
     '-movflags',
     '+faststart',
     outputMp4
-  ])
+  )
+  await run(args)
 }
 
 export interface BubblePlacement {
@@ -71,6 +93,7 @@ export async function overlayWebcamBubble(
   outputMp4: string,
   quality: EncodeQuality = DEFAULT_QUALITY,
   placement: BubblePlacement | null = null,
+  region: RegionCrop | null = null,
   margin = 36
 ): Promise<void> {
   const bubbleSize = placement?.size ?? 220
@@ -86,11 +109,20 @@ export async function overlayWebcamBubble(
     placement != null
       ? `(W-${bubbleSize})*${placement.xFrac.toFixed(4)}:(H-${bubbleSize})*${placement.yFrac.toFixed(4)}`
       : `W-${bubbleSize + margin}:H-${bubbleSize + margin}`
-  const filter =
+  // The bubble is composited at its absolute position on the full screen
+  // frame first; the region crop (if any) is applied to that composited
+  // result afterwards, same as a real recording would only show whatever
+  // falls inside the selected rectangle, bubble included.
+  let filter =
     `[1:v]scale=${bubbleSize}:${bubbleSize}:force_original_aspect_ratio=increase,` +
     `crop=${bubbleSize}:${bubbleSize},format=yuva420p,` +
     `geq=lum='p(X,Y)':a='${alphaExpr}'[circle];` +
     `[0:v][circle]overlay=${overlayPos}[out]`
+  let outTag = '[out]'
+  if (region) {
+    filter += `;[out]${cropFilter(region)}[cropped]`
+    outTag = '[cropped]'
+  }
 
   await run([
     '-y',
@@ -101,7 +133,7 @@ export async function overlayWebcamBubble(
     '-filter_complex',
     filter,
     '-map',
-    '[out]',
+    outTag,
     '-map',
     '0:a?',
     '-c:v',
@@ -122,62 +154,94 @@ export async function overlayWebcamBubble(
   ])
 }
 
-/** Trim a video to [startSec, endSec] (re-encodes for frame-accurate cuts). */
-export async function trimVideo(
-  input: string,
-  output: string,
-  startSec: number,
-  endSec: number
-): Promise<void> {
-  await run([
-    '-y',
-    '-i',
-    input,
-    '-ss',
-    String(startSec),
-    '-to',
-    String(endSec),
-    '-c:v',
-    'libx264',
-    '-preset',
-    'fast',
-    '-crf',
-    '18',
-    '-pix_fmt',
-    'yuv420p',
-    '-c:a',
-    'aac',
-    '-b:a',
-    '192k',
-    '-movflags',
-    '+faststart',
-    output
-  ])
+export interface TrimSegment {
+  start: number
+  end: number
 }
 
-/** Export a GIF clip from [startSec, endSec] using a two-pass palette for quality. */
-export async function exportGif(
+/** Probes for an audio stream by running ffmpeg with no output — it still
+ *  prints stream info to stderr before erroring on the missing output, which
+ *  is the standard way to get stream info without bundling ffprobe
+ *  separately. Needed because referencing a nonexistent [0:a] pad in a
+ *  filter_complex graph is a hard error, unlike the `-map 0:a?` optional
+ *  syntax which only applies outside filter graphs. */
+function probeHasAudio(input: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG_BIN, ['-i', input])
+    let stderr = ''
+    proc.stderr.on('data', (d) => {
+      stderr += d.toString()
+    })
+    proc.on('error', () => resolve(false))
+    // ffmpeg prints e.g. "Stream #0:1[0x2](eng): Audio: aac ..." — the
+    // [0x2] stream-id tag and (eng) language tag are both optional/variable,
+    // so match loosely rather than anchoring to a specific bracket shape.
+    proc.on('close', () => resolve(/Stream #\d+:\d+[^\n]*: Audio:/.test(stderr)))
+  })
+}
+
+/** Builds a filter graph that trims each segment independently and
+ *  concatenates the results in order, dropping whatever falls in the gaps
+ *  between segments. A single segment behaves like a plain trim. */
+function buildTrimConcatFilter(
+  segments: TrimSegment[],
+  hasAudio: boolean
+): { filter: string; vOut: string; aOut: string | null } {
+  const parts: string[] = []
+  const vLabels: string[] = []
+  const aLabels: string[] = []
+  segments.forEach((seg, i) => {
+    parts.push(`[0:v]trim=start=${seg.start}:end=${seg.end},setpts=PTS-STARTPTS[v${i}]`)
+    vLabels.push(`[v${i}]`)
+    if (hasAudio) {
+      parts.push(`[0:a]atrim=start=${seg.start}:end=${seg.end},asetpts=PTS-STARTPTS[a${i}]`)
+      aLabels.push(`[a${i}]`)
+    }
+  })
+  if (hasAudio) {
+    const chain = segments.map((_, i) => `${vLabels[i]}${aLabels[i]}`).join('')
+    parts.push(`${chain}concat=n=${segments.length}:v=1:a=1[outv][outa]`)
+    return { filter: parts.join(';'), vOut: '[outv]', aOut: '[outa]' }
+  }
+  const chain = vLabels.join('')
+  parts.push(`${chain}concat=n=${segments.length}:v=1:a=0[outv]`)
+  return { filter: parts.join(';'), vOut: '[outv]', aOut: null }
+}
+
+/** Cuts a video down to one or more kept [start,end] ranges and stitches
+ *  them into a single output (re-encodes for frame-accurate cuts). */
+export async function trimSegments(
   input: string,
   output: string,
-  startSec: number,
-  endSec: number,
+  segments: TrimSegment[]
+): Promise<void> {
+  const ordered = [...segments].sort((a, b) => a.start - b.start)
+  const hasAudio = await probeHasAudio(input)
+  const { filter, vOut, aOut } = buildTrimConcatFilter(ordered, hasAudio)
+
+  const args = ['-y', '-i', input, '-filter_complex', filter, '-map', vOut]
+  if (aOut) args.push('-map', aOut)
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-pix_fmt', 'yuv420p')
+  if (aOut) args.push('-c:a', 'aac', '-b:a', '192k')
+  args.push('-movflags', '+faststart', output)
+  await run(args)
+}
+
+/** Export a GIF stitched from one or more kept [start,end] ranges, using a
+ *  two-pass palette for quality. */
+export async function exportGifSegments(
+  input: string,
+  output: string,
+  segments: TrimSegment[],
   fps = 12,
   width = 720
 ): Promise<void> {
-  const duration = Math.max(0.1, endSec - startSec)
-  const filter = `fps=${fps},scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse`
-  await run([
-    '-y',
-    '-ss',
-    String(startSec),
-    '-t',
-    String(duration),
-    '-i',
-    input,
-    '-vf',
-    filter,
-    output
-  ])
+  const ordered = [...segments].sort((a, b) => a.start - b.start)
+  const { filter: trimFilter, vOut } = buildTrimConcatFilter(ordered, false)
+  const filter =
+    `${trimFilter};${vOut}fps=${fps},scale=${width}:-1:flags=lanczos,split[ga][gb];` +
+    `[ga]palettegen[gp];[gb][gp]paletteuse[outg]`
+  await run(['-y', '-i', input, '-filter_complex', filter, '-map', '[outg]', output])
 }
 
 /** Extract mono 16k WAV audio for the local transcription model. */

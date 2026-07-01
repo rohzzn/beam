@@ -1,7 +1,8 @@
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen, ipcMain } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import type { RegionRect } from './state'
 
 function rendererURL(hash: string): string {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -204,6 +205,50 @@ export function getWebcamPlacement(): WebcamPlacement | null {
     xFrac: clamp((b.x - area.x) / Math.max(1, area.width - b.width)),
     yFrac: clamp((b.y - area.y) / Math.max(1, area.height - b.height))
   }
+}
+
+/** Opens a fullscreen transparent overlay on the primary display for the
+ *  user to drag out a capture rectangle, and resolves with it expressed as
+ *  0..1 fractions of that display's bounds (or null if cancelled). Reuses
+ *  the existing full-screen capture pipeline — the rect is only applied as
+ *  an ffmpeg crop at encode time, so no new capture path is needed. */
+export function openRegionSelectWindow(): Promise<RegionRect | null> {
+  return new Promise((resolve) => {
+    const display = screen.getPrimaryDisplay()
+    const win = new BrowserWindow({
+      x: display.bounds.x,
+      y: display.bounds.y,
+      width: display.bounds.width,
+      height: display.bounds.height,
+      frame: false,
+      transparent: true,
+      hasShadow: false,
+      resizable: false,
+      movable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      fullscreenable: false,
+      show: false,
+      webPreferences: { preload, sandbox: false }
+    })
+    win.setAlwaysOnTop(true, 'screen-saver')
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+    let settled = false
+    const finish = (rect: RegionRect | null): void => {
+      if (settled) return
+      settled = true
+      ipcMain.removeListener('region:result', onResult)
+      resolve(rect)
+      if (!win.isDestroyed()) win.close()
+    }
+    const onResult = (_evt: unknown, rect: RegionRect | null): void => finish(rect)
+
+    ipcMain.on('region:result', onResult)
+    win.on('ready-to-show', () => win.show())
+    win.on('closed', () => finish(null))
+    load(win, '/region-select')
+  })
 }
 
 export function closeRecordingWindows(): void {

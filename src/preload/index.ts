@@ -3,6 +3,18 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 export type Quality = 'standard' | 'high' | 'maximum'
 
+export interface RegionRect {
+  xFrac: number
+  yFrac: number
+  wFrac: number
+  hFrac: number
+}
+
+export interface TrimSegment {
+  start: number
+  end: number
+}
+
 export interface RecordingOptions {
   sourceId: string
   sourceName: string
@@ -12,6 +24,7 @@ export interface RecordingOptions {
   webcamEnabled: boolean
   webcamDeviceId?: string
   quality: Quality
+  region?: RegionRect
 }
 
 export interface SourceInfo {
@@ -61,10 +74,10 @@ const api = {
     ipcRenderer.on('recording:control-event', listener)
     return () => ipcRenderer.removeListener('recording:control-event', listener)
   },
-  trim: (filePath: string, start: number, end: number): Promise<string> =>
-    ipcRenderer.invoke('editor:trim', { filePath, start, end }),
-  exportGif: (filePath: string, start: number, end: number): Promise<string> =>
-    ipcRenderer.invoke('editor:exportGif', { filePath, start, end }),
+  trim: (filePath: string, segments: TrimSegment[]): Promise<string> =>
+    ipcRenderer.invoke('editor:trim', { filePath, segments }),
+  exportGif: (filePath: string, segments: TrimSegment[]): Promise<string> =>
+    ipcRenderer.invoke('editor:exportGif', { filePath, segments }),
   reveal: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:reveal', filePath),
   copyPath: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:copyPath', filePath),
   copyFile: (filePath: string): Promise<void> => ipcRenderer.invoke('editor:copyFile', filePath),
@@ -85,7 +98,10 @@ const api = {
     const listener = (): void => cb()
     ipcRenderer.on('recording:remote-stop', listener)
     return () => ipcRenderer.removeListener('recording:remote-stop', listener)
-  }
+  },
+
+  selectRegion: (): Promise<RegionRect | null> => ipcRenderer.invoke('region:select'),
+  submitRegionResult: (rect: RegionRect | null): void => ipcRenderer.send('region:result', rect)
 }
 
 export type BeamAPI = typeof api

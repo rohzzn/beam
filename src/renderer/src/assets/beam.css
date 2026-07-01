@@ -335,6 +335,48 @@ button {
   padding: 24px 0;
 }
 
+.region-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  min-height: 96px;
+  justify-content: center;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 20px;
+  animation: fadeInUp 0.35s var(--ease) backwards;
+}
+.region-picker__draw {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.18s var(--ease),
+    background 0.18s var(--ease);
+}
+.region-picker__draw:hover {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+.region-picker__draw:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.region-picker__summary {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
 .option-row {
   display: flex;
   align-items: center;
@@ -433,6 +475,49 @@ button {
   font-weight: 700;
   color: var(--accent);
   animation: popIn 0.5s var(--ease-spring);
+}
+
+/* ---------- Region select overlay ---------- */
+.region-select {
+  position: fixed;
+  inset: 0;
+  cursor: crosshair;
+  user-select: none;
+}
+.region-select__hint {
+  position: absolute;
+  top: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 16, 21, 0.92);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  box-shadow: var(--shadow-md);
+  animation: fadeInUp 0.2s var(--ease);
+}
+.region-select__mask {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.45);
+}
+.region-select__box {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+.region-select__dims {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
 }
 
 /* ---------- Control bar ---------- */
@@ -616,6 +701,33 @@ button {
   border-left: 2px solid var(--accent);
   border-right: 2px solid var(--accent);
   border-radius: 4px;
+  transition:
+    background 0.15s var(--ease),
+    box-shadow 0.15s var(--ease);
+}
+.trim-track__selection.selected {
+  background: rgba(77, 47, 245, 0.32);
+  box-shadow: 0 0 0 1px var(--accent-hover);
+}
+.trim-track__delete {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger);
+  color: #fff;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg);
+  cursor: pointer;
+  padding: 0;
+}
+.trim-track__delete:hover {
+  background: var(--danger-hover);
 }
 .trim-track__handle {
   position: absolute;

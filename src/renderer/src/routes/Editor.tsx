@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { toPlaybackUrl } from '../lib/fileUrl'
+import type { TrimSegment } from '../../../preload/index'
 import {
   IconCheck,
   IconCopy,
@@ -7,9 +8,12 @@ import {
   IconGif,
   IconPause,
   IconPlay,
+  IconScissors,
   IconX
 } from '../components/Icons'
 import Logo from '../components/Logo'
+
+const MIN_SEG_LEN = 0.2
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds)) return '0:00'
@@ -21,12 +25,12 @@ function formatTime(seconds: number): string {
 export default function Editor({ filePath }: { filePath: string }): React.JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
-  const draggingRef = useRef<'start' | 'end' | null>(null)
+  const draggingRef = useRef<{ index: number; edge: 'start' | 'end' } | null>(null)
 
   const [duration, setDuration] = useState(0)
   const [current, setCurrent] = useState(0)
-  const [trimStart, setTrimStart] = useState(0)
-  const [trimEnd, setTrimEnd] = useState(0)
+  const [segments, setSegments] = useState<TrimSegment[]>([])
+  const [selected, setSelected] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [busy, setBusy] = useState<'trim' | 'gif' | 'transcribe' | null>(null)
   const [statusMsg, setStatusMsg] = useState('')
@@ -39,11 +43,23 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
       const rect = trackRef.current.getBoundingClientRect()
       const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
       const time = ratio * duration
-      if (dragging === 'start') {
-        setTrimStart(Math.min(time, trimEnd - 0.2))
-      } else {
-        setTrimEnd(Math.max(time, trimStart + 0.2))
-      }
+
+      setSegments((prev) => {
+        const seg = prev[dragging.index]
+        if (!seg) return prev
+        const next = [...prev]
+        if (dragging.edge === 'start') {
+          const lowerBound = dragging.index > 0 ? next[dragging.index - 1].end : 0
+          const clamped = Math.min(Math.max(time, lowerBound), seg.end - MIN_SEG_LEN)
+          next[dragging.index] = { ...seg, start: clamped }
+        } else {
+          const upperBound =
+            dragging.index < next.length - 1 ? next[dragging.index + 1].start : duration
+          const clamped = Math.max(Math.min(time, upperBound), seg.start + MIN_SEG_LEN)
+          next[dragging.index] = { ...seg, end: clamped }
+        }
+        return next
+      })
     }
     function onUp(): void {
       draggingRef.current = null
@@ -54,20 +70,60 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
     }
-  }, [duration, trimStart, trimEnd])
+  }, [duration])
+
+  function activeSegmentIndex(t: number): number {
+    return segments.findIndex((s) => t >= s.start && t < s.end)
+  }
+
+  function handleSplit(): void {
+    const idx = segments.findIndex(
+      (s) => current > s.start + MIN_SEG_LEN && current < s.end - MIN_SEG_LEN
+    )
+    if (idx === -1) return
+    const seg = segments[idx]
+    const next = [...segments]
+    next.splice(idx, 1, { start: seg.start, end: current }, { start: current, end: seg.end })
+    setSegments(next)
+    setSelected(null)
+  }
+
+  function handleDeleteSegment(idx: number): void {
+    if (segments.length <= 1) return
+    setSegments((prev) => prev.filter((_, i) => i !== idx))
+    setSelected(null)
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected !== null) {
+        e.preventDefault()
+        handleDeleteSegment(selected)
+      } else if (e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        handleSplit()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, segments, current])
 
   function handleLoadedMetadata(): void {
     const d = videoRef.current?.duration ?? 0
     setDuration(d)
-    setTrimEnd(d)
+    setSegments([{ start: 0, end: d }])
   }
 
   function togglePlay(): void {
     const video = videoRef.current
-    if (!video) return
+    if (!video || segments.length === 0) return
     if (video.paused) {
-      if (video.currentTime < trimStart || video.currentTime >= trimEnd) {
-        video.currentTime = trimStart
+      if (activeSegmentIndex(video.currentTime) === -1) {
+        const next = segments.find((s) => s.start > video.currentTime)
+        video.currentTime = next ? next.start : segments[0].start
       }
       video.play().catch(() => {})
       setPlaying(true)
@@ -80,10 +136,16 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
   function handleTimeUpdate(): void {
     const video = videoRef.current
     if (!video) return
-    setCurrent(video.currentTime)
-    if (video.currentTime >= trimEnd) {
-      video.pause()
-      setPlaying(false)
+    const t = video.currentTime
+    setCurrent(t)
+    if (activeSegmentIndex(t) === -1) {
+      const next = segments.find((s) => s.start > t)
+      if (next) {
+        video.currentTime = next.start
+      } else if (playing) {
+        video.pause()
+        setPlaying(false)
+      }
     }
   }
 
@@ -94,13 +156,15 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
     const time = ratio * duration
     if (videoRef.current) videoRef.current.currentTime = time
     setCurrent(time)
+    const idx = segments.findIndex((s) => time >= s.start && time <= s.end)
+    setSelected(idx === -1 ? null : idx)
   }
 
   async function handleTrim(): Promise<void> {
     setBusy('trim')
     setStatusMsg('Exporting trimmed copy…')
     try {
-      const out = await window.beam.trim(filePath, trimStart, trimEnd)
+      const out = await window.beam.trim(filePath, segments)
       setStatusMsg(`Saved: ${out}`)
     } catch (err) {
       setStatusMsg(`Trim failed: ${(err as Error).message}`)
@@ -113,7 +177,7 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
     setBusy('gif')
     setStatusMsg('Exporting GIF…')
     try {
-      const out = await window.beam.exportGif(filePath, trimStart, trimEnd)
+      const out = await window.beam.exportGif(filePath, segments)
       setStatusMsg(`Saved GIF: ${out}`)
     } catch (err) {
       setStatusMsg(`GIF export failed: ${(err as Error).message}`)
@@ -145,9 +209,10 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
     }
   }
 
-  const startPct = duration ? (trimStart / duration) * 100 : 0
-  const endPct = duration ? (trimEnd / duration) * 100 : 100
   const playheadPct = duration ? (current / duration) * 100 : 0
+  const canSplit = segments.some(
+    (s) => current > s.start + MIN_SEG_LEN && current < s.end - MIN_SEG_LEN
+  )
 
   return (
     <div className="editor">
@@ -200,6 +265,14 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
           <span className="editor__time">
             {formatTime(current)} / {formatTime(duration)}
           </span>
+          <button
+            className="btn btn-secondary btn-icon"
+            onClick={handleSplit}
+            disabled={!canSplit}
+            title="Split at playhead (S)"
+          >
+            <IconScissors width={14} height={14} />
+          </button>
           <div style={{ flex: 1 }} />
           <button className="btn btn-secondary" disabled={busy !== null} onClick={handleTranscribe}>
             {busy === 'transcribe' ? <span className="spinner" /> : null} Transcribe
@@ -214,30 +287,57 @@ export default function Editor({ filePath }: { filePath: string }): React.JSX.El
         </div>
 
         <div className="trim-track" ref={trackRef} onClick={seekFromTrackClick}>
-          <div
-            className="trim-track__selection"
-            style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
-          />
-          <div
-            className="trim-track__handle"
-            style={{ left: `calc(${startPct}% - 6px)` }}
-            onPointerDown={(e) => {
-              e.stopPropagation()
-              draggingRef.current = 'start'
-            }}
-          />
-          <div
-            className="trim-track__handle"
-            style={{ left: `calc(${endPct}% - 6px)` }}
-            onPointerDown={(e) => {
-              e.stopPropagation()
-              draggingRef.current = 'end'
-            }}
-          />
+          {segments.map((seg, i) => {
+            const leftPct = duration ? (seg.start / duration) * 100 : 0
+            const widthPct = duration ? ((seg.end - seg.start) / duration) * 100 : 0
+            return (
+              <div
+                key={i}
+                className={`trim-track__selection ${selected === i ? 'selected' : ''}`}
+                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+              >
+                {selected === i && segments.length > 1 && (
+                  <button
+                    className="trim-track__delete"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteSegment(i)
+                    }}
+                    title="Remove this segment"
+                  >
+                    <IconX width={11} height={11} />
+                  </button>
+                )}
+                <div
+                  className="trim-track__handle"
+                  style={{ left: -6 }}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => {
+                    e.stopPropagation()
+                    draggingRef.current = { index: i, edge: 'start' }
+                  }}
+                />
+                <div
+                  className="trim-track__handle"
+                  style={{ right: -6 }}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => {
+                    e.stopPropagation()
+                    draggingRef.current = { index: i, edge: 'end' }
+                  }}
+                />
+              </div>
+            )
+          })}
           <div className="trim-track__playhead" style={{ left: `${playheadPct}%` }} />
         </div>
 
-        <div className="editor__status">{statusMsg}</div>
+        <div className="editor__status">
+          {statusMsg ||
+            (segments.length > 1
+              ? `${segments.length} segments kept · S to split a clip, select + Delete to remove one`
+              : '')}
+        </div>
       </div>
     </div>
   )
