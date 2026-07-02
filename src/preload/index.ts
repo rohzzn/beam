@@ -77,12 +77,19 @@ const api = {
   submitMicBuffer: (buffer: ArrayBuffer): Promise<void> =>
     ipcRenderer.invoke('recording:submit-mic', buffer),
   notifyMicUnavailable: (): void => ipcRenderer.send('recording:mic-unavailable'),
+  notifyWebcamUnavailable: (): void => ipcRenderer.send('recording:webcam-unavailable'),
+  notifyStreamReady: (): void => ipcRenderer.send('recording:ready-to-start'),
   cancelRecording: (reason?: string): Promise<void> =>
     ipcRenderer.invoke('recording:cancel', reason),
   onRecordingBegin: (cb: (options: RecordingOptions) => void): (() => void) => {
     const listener = (_evt: unknown, options: RecordingOptions): void => cb(options)
     ipcRenderer.on('recording:begin', listener)
     return () => ipcRenderer.removeListener('recording:begin', listener)
+  },
+  onRecordingGo: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('recording:go', listener)
+    return () => ipcRenderer.removeListener('recording:go', listener)
   },
   onRecordingFailed: (cb: (reason: string) => void): (() => void) => {
     const listener = (_evt: unknown, reason: string): void => cb(reason)

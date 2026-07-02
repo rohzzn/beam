@@ -17,6 +17,16 @@ function formatTime(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+/** The Stop button is disabled while still waiting for the sync handshake
+ *  in recording.ts to fire "go", but the global hotkey and the OS-level
+ *  "stop sharing" indicator both call handleStop() directly, bypassing
+ *  that. A MediaRecorder that was prepared but never started is still
+ *  "inactive" — calling stop() on it throws InvalidStateError instead of
+ *  quietly no-op'ing. */
+function safeStop(recorder: MediaRecorder | null): void {
+  if (recorder && recorder.state !== 'inactive') recorder.stop()
+}
+
 export default function ControlBar(): React.JSX.Element {
   const [status, setStatus] = useState<'starting' | 'recording' | 'paused' | 'stopping'>('starting')
   const [elapsed, setElapsed] = useState(0)
@@ -33,11 +43,24 @@ export default function ControlBar(): React.JSX.Element {
   function handleStop(): void {
     setStatus((prev) => {
       if (prev === 'stopping') return prev
-      window.beam.sendControlEvent('stop')
-      recorderRef.current?.stop()
-      micRecorderRef.current?.stop()
       stopLiveCaptionsRef.current?.()
       stopLiveCaptionsRef.current = null
+      if (prev === 'starting') {
+        // The sync handshake in recording.ts never reached "go" — both
+        // recorders are still "inactive" (prepared, never started), so
+        // there's nothing recorded to stop and finalize; this is really a
+        // cancel. Because they were never started, their onstop handlers
+        // (which normally release the underlying tracks) will never fire,
+        // so release the tracks directly instead of leaking an open
+        // mic/screen-share indicator.
+        stopAllTracks(...streamsRef.current)
+        audioCtxRef.current?.close()
+        window.beam.cancelRecording()
+        return 'stopping'
+      }
+      window.beam.sendControlEvent('stop')
+      safeStop(recorderRef.current)
+      safeStop(micRecorderRef.current)
       return 'stopping'
     })
   }
@@ -111,7 +134,6 @@ export default function ControlBar(): React.JSX.Element {
             await window.beam.submitMicBuffer(buffer)
           }
           micRecorderRef.current = micRecorder
-          micRecorder.start(1000)
         } catch (err) {
           console.error(
             '[beam] mic-only capture failed to start, transcription will fall back',
@@ -125,6 +147,10 @@ export default function ControlBar(): React.JSX.Element {
 
       // Same best-effort treatment as everything else optional here — live
       // captions failing to start must never affect the actual recording.
+      // Unlike the two recorders above, this doesn't wait for the "go"
+      // signal below — a few hundred ms of offset doesn't matter for a
+      // rough background transcript, and starting it as early as possible
+      // only helps it get further ahead by the time recording ends.
       if (micStream && options.liveCaptions) {
         try {
           stopLiveCaptionsRef.current = startLiveCaptionCapture(micStream)
@@ -133,11 +159,13 @@ export default function ControlBar(): React.JSX.Element {
         }
       }
 
-      recorder.start(1000)
-      setStatus('recording')
-
       // If the user stops sharing from the OS-level indicator, end gracefully.
       videoTrack?.addEventListener('ended', () => handleStop())
+
+      // Stream + both MediaRecorders are fully prepared but deliberately
+      // not started yet — see recording.ts for why this waits for main's
+      // synchronized "go" instead of just calling start() right here.
+      window.beam.notifyStreamReady()
     } catch (err) {
       console.error('Failed to start recording', err)
       await window.beam.cancelRecording((err as Error).message || 'Could not start recording')
@@ -162,9 +190,15 @@ export default function ControlBar(): React.JSX.Element {
 
   useEffect(() => {
     const offBegin = window.beam.onRecordingBegin((options) => begin(options))
+    const offGo = window.beam.onRecordingGo(() => {
+      recorderRef.current?.start(1000)
+      micRecorderRef.current?.start(1000)
+      setStatus('recording')
+    })
     const offRemoteStop = window.beam.onRemoteStop(() => handleStop())
     return () => {
       offBegin()
+      offGo()
       offRemoteStop()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

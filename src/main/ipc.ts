@@ -91,6 +91,13 @@ export function registerIpcHandlers(): void {
     )
   })
 
+  ipcMain.on('recording:webcam-unavailable', () => {
+    recorderState.webcamUnavailable = true
+    maybeFinalize().catch((err) =>
+      console.error('[beam] finalize after webcam-unavailable failed', err)
+    )
+  })
+
   ipcMain.on(
     'recording:live-caption-chunk',
     (_evt, payload: { samples: ArrayBuffer; start: number; duration: number }) => {
@@ -232,10 +239,16 @@ async function copyFileToClipboard(filePath: string): Promise<void> {
 }
 
 async function maybeFinalize(): Promise<void> {
-  const { options, screenBufferPath, webcamBufferPath, micBufferPath, micUnavailable } =
-    recorderState
+  const {
+    options,
+    screenBufferPath,
+    webcamBufferPath,
+    micBufferPath,
+    micUnavailable,
+    webcamUnavailable
+  } = recorderState
   if (!options || !screenBufferPath) return
-  if (options.webcamEnabled && !webcamBufferPath) return
+  if (options.webcamEnabled && !webcamBufferPath && !webcamUnavailable) return
   // Mic-only capture is an optional transcription nicety, never a hard
   // requirement — wait for it only while it's still plausibly coming.
   if (options.micEnabled && !micBufferPath && !micUnavailable) return

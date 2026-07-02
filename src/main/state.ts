@@ -45,6 +45,11 @@ interface RecorderState {
    *  strictly a transcription nicety — it must never block the actual
    *  screen recording from finishing. */
   micUnavailable: boolean
+  /** Same idea as micUnavailable, for the webcam bubble — e.g. the camera
+   *  failed to open. Without this, both the sync handshake in recording.ts
+   *  and the finalize gate below would wait forever for a webcam that's
+   *  never coming. */
+  webcamUnavailable: boolean
 }
 
 export const recorderState: RecorderState = {
@@ -52,7 +57,8 @@ export const recorderState: RecorderState = {
   screenBufferPath: null,
   webcamBufferPath: null,
   micBufferPath: null,
-  micUnavailable: false
+  micUnavailable: false,
+  webcamUnavailable: false
 }
 
 export function resetRecorderState(): void {
@@ -61,4 +67,5 @@ export function resetRecorderState(): void {
   recorderState.webcamBufferPath = null
   recorderState.micBufferPath = null
   recorderState.micUnavailable = false
+  recorderState.webcamUnavailable = false
 }
