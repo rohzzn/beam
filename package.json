@@ -1,6 +1,6 @@
 {
   "name": "beam",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Beam — free screen recording and sharing, entirely on your machine.",
   "main": "./out/main/index.js",
   "author": "Beam",
